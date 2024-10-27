@@ -1,4 +1,5 @@
-Team 2 DART Firmware Development:
+TEAM 2 DART FIRMWARE DEVELOPMENT
+
 Authors: Abhirit Das, Ben Park
 
 Progress:
