@@ -50,6 +50,27 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 volatile uint8_t timer_flag = 0;
+volatile int16_t accel_x_raw;
+volatile int16_t accel_y_raw;
+volatile int16_t accel_z_raw;
+volatile int16_t gyro_x_raw;
+volatile int16_t gyro_y_raw;
+volatile int16_t gyro_z_raw;
+
+volatile float AccX;
+volatile float AccY;
+volatile float AccZ;
+volatile float GyroX;
+volatile float GyroY;
+volatile float GyroZ;
+volatile float kalman_accel_x;
+volatile float kalman_accel_y;
+volatile float kalman_accel_z;
+volatile float kalman_gyro_x;
+volatile float kalman_gyro_y;
+volatile float kalman_gyro_z;
+volatile float AngleRoll;
+volatile float AnglePitch;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -106,12 +127,7 @@ int main(void)
   MX_SPI1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  int16_t accel_x;
-  int16_t accel_y;
-  int16_t accel_z;
-  int16_t gyro_x;
-  int16_t gyro_y;
-  int16_t gyro_z;
+
   uint8_t imu_data[6];
   char buffer[40] = {'\0'};
 
@@ -130,28 +146,34 @@ int main(void)
 //	  }
 
 	  mpu9250_read_reg(59, imu_data, sizeof(imu_data));
-	  accel_x = ((int16_t)imu_data[0]<<8) | imu_data[1];
-	  accel_y = ((int16_t)imu_data[2]<<8) | imu_data[3];
-	  accel_z = ((int16_t)imu_data[4]<<8) | imu_data[5];
+	  accel_x_raw = ((int16_t)imu_data[0]<<8) | imu_data[1];
+	  accel_y_raw = ((int16_t)imu_data[2]<<8) | imu_data[3];
+	  accel_z_raw = ((int16_t)imu_data[4]<<8) | imu_data[5];
 
-	  accel_x = (float)accel_x/4096.0;
-	  accel_y = (float)accel_y/4096.0;
-	  accel_z = (float)accel_z/4096.0;
+	  AccX = (float)accel_x_raw/4096.0;
+	  AccY = (float)accel_y_raw/4096.0;
+	  AccZ = (float)accel_z_raw/4096.0;
+	  AccZ -= 4;	//offset accel_z_raw to be around 0
 
 	  mpu9250_read_reg(67, imu_data, sizeof(imu_data));
-	  gyro_x = ((int16_t)imu_data[0]<<8) | imu_data[1];
-	  gyro_y = ((int16_t)imu_data[2]<<8) | imu_data[3];
-	  gyro_z = ((int16_t)imu_data[4]<<8) | imu_data[5];
+	  gyro_x_raw = ((int16_t)imu_data[0]<<8) | imu_data[1];
+	  gyro_y_raw = ((int16_t)imu_data[2]<<8) | imu_data[3];
+	  gyro_z_raw = ((int16_t)imu_data[4]<<8) | imu_data[5];
 
-	  gyro_x = (float)gyro_x/65.5;
-	  gyro_y = (float)gyro_y/65.5;
-	  gyro_z = (float)gyro_z/65.5;
+	  GyroX = (float)gyro_x_raw/65.5;
+	  GyroY = (float)gyro_y_raw/65.5;
+	  GyroZ = (float)gyro_z_raw/65.5;
+	  GyroX -= 4;
+	  GyroY += 20;
+	  GyroZ += 5;
 
+	  AngleRoll=atan(AccY/sqrt(AccX*AccX+AccZ*AccZ))*1/(3.142/180);
+	  AnglePitch=-atan(AccX/sqrt(AccY*AccY+AccZ*AccZ))*1/(3.142/180);
 
 	  timer_flag = 0;
 
 	  //send data through UART
-	  snprintf(buffer, sizeof(buffer), "%d,%d,%d\n", accel_x, accel_y, accel_z);
+	  snprintf(buffer, sizeof(buffer), "%.4f,%.4f\n", AngleRoll, AnglePitch);
 	  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
 	  HAL_Delay(10);
 
@@ -396,7 +418,7 @@ void mpu9250_config()
 {
 	mpu9250_write_reg(26, 0x05);		//enable digital low pass filter
 	mpu9250_write_reg(28, 0x10);		//set accelerometer full scale to +-8g
-	mpu9250_write_reg(27, 0x08);		//set gyroscope full scale
+	mpu9250_write_reg(27, 0x08);		//set gyroscope full scale full scale to +-500deg
 }
 
 void mpu9250_write_reg(uint8_t reg, uint8_t data)

@@ -61,7 +61,7 @@ main-build: Team2_DART_Firmware.elf secondary-outputs
 
 # Tool invocations
 Team2_DART_Firmware.elf Team2_DART_Firmware.map: $(OBJS) $(USER_OBJS) C:\Users\abhir\Documents_Local\TEXAS\ AERIAL\ ROBOTICS\Team2-DART-Firmware\STM32H743VITX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "Team2_DART_Firmware.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"C:\Users\abhir\Documents_Local\TEXAS AERIAL ROBOTICS\Team2-DART-Firmware\STM32H743VITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Team2_DART_Firmware.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+	arm-none-eabi-gcc -o "Team2_DART_Firmware.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"C:\Users\abhir\Documents_Local\TEXAS AERIAL ROBOTICS\Team2-DART-Firmware\STM32H743VITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Team2_DART_Firmware.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -u _printf_float -u _scanf_float -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
