@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <string.h>
+#include "mpu9250.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -49,28 +50,14 @@ TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-volatile uint8_t timer_flag = 0;
-volatile int16_t accel_x_raw;
-volatile int16_t accel_y_raw;
-volatile int16_t accel_z_raw;
-volatile int16_t gyro_x_raw;
-volatile int16_t gyro_y_raw;
-volatile int16_t gyro_z_raw;
+extern IMU_ProcessedData_t imu_processed_data;
+extern IMU_Angles_t imu_angles;
+extern Kalman_t KalmanPitch;
+extern Kalman_t KalmanRoll;
+volatile double previous_time = 0;
 
-volatile float AccX;
-volatile float AccY;
-volatile float AccZ;
-volatile float GyroX;
-volatile float GyroY;
-volatile float GyroZ;
-volatile float kalman_accel_x;
-volatile float kalman_accel_y;
-volatile float kalman_accel_z;
-volatile float kalman_gyro_x;
-volatile float kalman_gyro_y;
-volatile float kalman_gyro_z;
-volatile float AngleRoll;
-volatile float AnglePitch;
+volatile uint8_t timer_flag = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -81,9 +68,7 @@ static void MX_USART2_UART_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
-void mpu9250_read_reg(uint8_t reg, uint8_t *data, uint8_t len);
-void mpu9250_write_reg(uint8_t reg, uint8_t data);
-void mpu9250_config();
+double get_dt();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -127,55 +112,32 @@ int main(void)
   MX_SPI1_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-
-  uint8_t imu_data[6];
+  HAL_TIM_Base_Start_IT(&htim2);  // Enable TIM2 interrupt
   char buffer[40] = {'\0'};
+  mpu9250_setup();
 
-  mpu9250_config();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-//	  if(timer_flag)
-//	  {
-//		  mpu9250_read_reg(59, imu_data, sizeof(imu_data));
-//		  accel_data = ((int16_t)imu_data[0]<<8) + imu_data[1];
-//		  timer_flag = 0;
-//	  }
+	  //process IMU data on timer interrupt
+	  if(timer_flag)
+	  {
+		  timer_flag = 0;	//reset timer flag
 
-	  mpu9250_read_reg(59, imu_data, sizeof(imu_data));
-	  accel_x_raw = ((int16_t)imu_data[0]<<8) | imu_data[1];
-	  accel_y_raw = ((int16_t)imu_data[2]<<8) | imu_data[3];
-	  accel_z_raw = ((int16_t)imu_data[4]<<8) | imu_data[5];
+		  mpu9250_getRawAngle();
 
-	  AccX = (float)accel_x_raw/4096.0;
-	  AccY = (float)accel_y_raw/4096.0;
-	  AccZ = (float)accel_z_raw/4096.0;
-	  AccZ -= 4;	//offset accel_z_raw to be around 0
+		  double dt = get_dt();
 
-	  mpu9250_read_reg(67, imu_data, sizeof(imu_data));
-	  gyro_x_raw = ((int16_t)imu_data[0]<<8) | imu_data[1];
-	  gyro_y_raw = ((int16_t)imu_data[2]<<8) | imu_data[3];
-	  gyro_z_raw = ((int16_t)imu_data[4]<<8) | imu_data[5];
+		  double pitch_angle = kalman_getAngle(&KalmanPitch, imu_angles.pitch, imu_processed_data.gyro_y, dt);
+		  double roll_angle = kalman_getAngle(&KalmanRoll, imu_angles.roll, imu_processed_data.gyro_x, dt);
 
-	  GyroX = (float)gyro_x_raw/65.5;
-	  GyroY = (float)gyro_y_raw/65.5;
-	  GyroZ = (float)gyro_z_raw/65.5;
-	  GyroX -= 4;
-	  GyroY += 20;
-	  GyroZ += 5;
-
-	  AngleRoll=atan(AccY/sqrt(AccX*AccX+AccZ*AccZ))*1/(3.142/180);
-	  AnglePitch=-atan(AccX/sqrt(AccY*AccY+AccZ*AccZ))*1/(3.142/180);
-
-	  timer_flag = 0;
-
-	  //send data through UART
-	  snprintf(buffer, sizeof(buffer), "%.4f,%.4f\n", AngleRoll, AnglePitch);
-	  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
-	  HAL_Delay(10);
+		  //send data through UART
+		  snprintf(buffer, sizeof(buffer), "%.4f,%.4f\n", pitch_angle, roll_angle);
+		  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+	  }
 
     /* USER CODE END WHILE */
 
@@ -310,9 +272,9 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 7999;
+  htim2.Init.Prescaler = 799;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 9999;
+  htim2.Init.Period = 999;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -414,33 +376,13 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void mpu9250_config()
+double get_dt()
 {
-	mpu9250_write_reg(26, 0x05);		//enable digital low pass filter
-	mpu9250_write_reg(28, 0x10);		//set accelerometer full scale to +-8g
-	mpu9250_write_reg(27, 0x08);		//set gyroscope full scale full scale to +-500deg
+    double current_time = HAL_GetTick() / 1000.0;  // Get time in seconds
+    double dt = current_time - previous_time;
+    previous_time = current_time;  // Update for the next call
+    return dt;
 }
-
-void mpu9250_write_reg(uint8_t reg, uint8_t data)
-{
-	HAL_GPIO_WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, GPIO_PIN_RESET);
-	HAL_SPI_Transmit(&hspi1, &reg, 1, 100);
-	HAL_SPI_Transmit(&hspi1, &data, 1, 100);
-	HAL_GPIO_WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, GPIO_PIN_SET);
-}
-void mpu9250_read_reg(uint8_t reg, uint8_t *data, uint8_t len)
-{
-	uint8_t temp_data = 0x80|reg;
-	HAL_GPIO_WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, GPIO_PIN_RESET);
-	HAL_StatusTypeDef ret = HAL_SPI_Transmit(&hspi1, &temp_data , 1, 100);
-	if(ret != HAL_OK)
-		Error_Handler;
-	ret = HAL_SPI_Receive(&hspi1, data, len, 100);
-	if(ret != HAL_OK)
-		Error_Handler;
-	HAL_GPIO_WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, GPIO_PIN_SET);
-}
-
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	if (htim == &htim2)
