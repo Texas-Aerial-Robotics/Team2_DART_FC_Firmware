@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "mpu9250.h"
+#include "bmp388.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -115,6 +116,7 @@ int main(void)
   HAL_TIM_Base_Start_IT(&htim2);  // Enable TIM2 interrupt
   char buffer[40] = {'\0'};
   mpu9250_setup();
+  //bmp388_setup();
 
   /* USER CODE END 2 */
 
@@ -128,16 +130,17 @@ int main(void)
 		  timer_flag = 0;	//reset timer flag
 
 		  mpu9250_getRawAngle();
-
-		  double dt = get_dt();
-
-		  double pitch_angle = kalman_getAngle(&KalmanPitch, imu_angles.pitch, imu_processed_data.gyro_y, dt);
-		  double roll_angle = kalman_getAngle(&KalmanRoll, imu_angles.roll, imu_processed_data.gyro_x, dt);
-
-		  //send data through UART
-		  snprintf(buffer, sizeof(buffer), "%.4f,%.4f\n", pitch_angle, roll_angle);
-		  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
 	  }
+
+	  double dt = get_dt();
+
+	  double pitch_angle = kalman_getAngle(&KalmanPitch, imu_angles.pitch, imu_processed_data.gyro_y, dt);
+	  double roll_angle = kalman_getAngle(&KalmanRoll, imu_angles.roll, imu_processed_data.gyro_x, dt);
+
+	  //send data through UART
+	  snprintf(buffer, sizeof(buffer), "%.4f,%.4f\n", pitch_angle, roll_angle);
+	  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+	  HAL_Delay(5);
 
     /* USER CODE END WHILE */
 

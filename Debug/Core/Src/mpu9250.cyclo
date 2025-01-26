@@ -1,5 +1,5 @@
 ../Core/Src/mpu9250.c:36:6:mpu9250_write_reg	1
 ../Core/Src/mpu9250.c:44:6:mpu9250_read_reg	1
 ../Core/Src/mpu9250.c:57:6:mpu9250_setup	1
-../Core/Src/mpu9250.c:67:6:mpu9250_getRawAngle	1
-../Core/Src/mpu9250.c:97:8:kalman_getAngle	1
+../Core/Src/mpu9250.c:65:6:mpu9250_getRawAngle	1
+../Core/Src/mpu9250.c:95:8:kalman_getAngle	1

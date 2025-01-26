@@ -59,8 +59,6 @@ void mpu9250_setup()
 	mpu9250_write_reg(26, 0x05);		//enable digital low pass filter
 	mpu9250_write_reg(28, 0x10);		//set accelerometer full scale to +-8g
 	mpu9250_write_reg(27, 0x08);		//set gyroscope full scale full scale to +-500deg
-
-	//maybe ensure all IMU struct values are set to 0
 }
 
 
