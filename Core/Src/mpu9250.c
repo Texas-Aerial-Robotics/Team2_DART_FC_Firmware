@@ -14,24 +14,12 @@ extern SPI_HandleTypeDef hspi1;
 // Declare global variables for the IMU data
 IMU_RawData_t imu_raw_data;         // Instance of raw IMU data
 IMU_ProcessedData_t imu_processed_data; // Instance of processed IMU data
-IMU_Angles_t imu_angles;            // Instance of IMU angles
 
 /*
  * Q_angle: Process Noise for Angle
  * Q_bias: Process Noise for Bias
  * R_measure: Measurement Noise
  */
-Kalman_t KalmanPitch = {
-		.Q_angle = 0.01f,		//smaller value: slower updates & reliance on gyro, higher value: faster updates & reliance on accelerometer
-		.Q_bias = 0.003f,		//increase value if bias changes frequently
-		.R_measure = 0.03f		//smaller value: faster response & amplify noise, larger value: slower response & smoothened output
-};
-Kalman_t KalmanRoll = {
-		.Q_angle = 0.01f,
-		.Q_bias = 0.003f,
-		.R_measure = 0.03f
-};
-
 
 void mpu9250_write_reg(uint8_t reg, uint8_t data)
 {
@@ -71,62 +59,110 @@ void mpu9250_getRawAngle()
 	  imu_raw_data.accel_y = ((int16_t)imu_data[2]<<8) | imu_data[3];
 	  imu_raw_data.accel_z = ((int16_t)imu_data[4]<<8) | imu_data[5];
 
-	  imu_processed_data.accel_x = (float)imu_raw_data.accel_x/4096.0;
-	  imu_processed_data.accel_y = (float)imu_raw_data.accel_y/4096.0;
-	  imu_processed_data.accel_z = (float)imu_raw_data.accel_z/4096.0;
-	  imu_processed_data.accel_z -= 4;	//offset AccZ to be around 0
+	  imu_processed_data.accel[0] = (float)imu_raw_data.accel_x/4096.0;
+	  imu_processed_data.accel[1] = (float)imu_raw_data.accel_y/4096.0;
+	  imu_processed_data.accel[2] = (float)imu_raw_data.accel_z/4096.0;
+	  imu_processed_data.accel[2] -= 4;	//offset AccZ to be around 0
 
 	  mpu9250_read_reg(67, imu_data, sizeof(imu_data));
 	  imu_raw_data.gyro_x = ((int16_t)imu_data[0]<<8) | imu_data[1];
 	  imu_raw_data.gyro_y = ((int16_t)imu_data[2]<<8) | imu_data[3];
 	  imu_raw_data.gyro_z = ((int16_t)imu_data[4]<<8) | imu_data[5];
 
-	  imu_processed_data.gyro_x = (float)imu_raw_data.gyro_x/65.5;
-	  imu_processed_data.gyro_y = (float)imu_raw_data.gyro_y/65.5;
-	  imu_processed_data.gyro_z = (float)imu_raw_data.gyro_z/65.5;
-	  imu_processed_data.gyro_x -= 4;	//offset GyroX to be around 0
-	  imu_processed_data.gyro_y += 20;	//offset GyroY to be around 0
-	  imu_processed_data.gyro_z += 5;	//offset GyroZ to be around 0
+	  imu_processed_data.gyro[0] = (float)imu_raw_data.gyro_x/65.5;
+	  imu_processed_data.gyro[1] = (float)imu_raw_data.gyro_y/65.5;
+	  imu_processed_data.gyro[2] = (float)imu_raw_data.gyro_z/65.5;
+	  imu_processed_data.gyro[0] -= 4;	//offset GyroX to be around 0
+	  imu_processed_data.gyro[1] += 20;	//offset GyroY to be around 0
+	  imu_processed_data.gyro[2] += 5;	//offset GyroZ to be around 0
 
-	  imu_angles.roll=atan(imu_processed_data.accel_y/sqrt((imu_processed_data.accel_x*imu_processed_data.accel_x)+(imu_processed_data.accel_z*imu_processed_data.accel_z)))*1/(3.142/180);
-	  imu_angles.pitch=-atan(imu_processed_data.accel_x/sqrt((imu_processed_data.accel_y*imu_processed_data.accel_y)+(imu_processed_data.accel_z*imu_processed_data.accel_z)))*1/(3.142/180);
 }
 
-double kalman_getAngle(Kalman_t *Kalman, double newAngle, double newRate, double dt)
-{
-	//Step 1: State Prediction
-	double rate = newRate - Kalman->bias;	//newRate is the newest gyro measurement
-	Kalman->angle += dt * rate;
 
-	//Step 2: Covariance Prediction
-	Kalman->P[0][0] += dt * (dt * Kalman->P[1][1] - Kalman->P[1][0] - Kalman->P[0][1] + Kalman->Q_angle);
-	Kalman->P[0][1] -= dt * Kalman->P[1][1];
-	Kalman->P[1][0] -= dt * Kalman->P[1][1];
-	Kalman->P[1][1] += Kalman->Q_bias * dt;
+void KalmanRollPitch_Init(KalmanRollPitch *kal, float Pinit, float *Q, float *R) {
+	kal->phi   = 0.0f;
+	kal->theta = 0.0f;
+	kal->P[0] = Pinit; kal->P[1] = 0.0f;
+	kal->P[2] = 0.0f;  kal->P[3] = Pinit;
+	kal->Q[0] = Q[0];  kal->Q[1] = Q[1];
+	kal->R[0] = R[0];  kal->R[1] = R[1]; kal->R[2] = R[2];
+}
 
-	//Step 3: Innovation (calculate angle difference)
-	double y = newAngle - Kalman->angle;
+void KalmanRollPitch_Predict(KalmanRollPitch *kal, float *gyr, float T) {
+	/* Extract measurements */
+	float p = gyr[0];
+	float q = gyr[1];
+	float r = gyr[2];
 
-	//Step 4: Innovation covariance	(estimate error)
-	double S = Kalman->P[0][0] + Kalman->R_measure;
+	/* PREDICT */
 
-	//Step 5: Kalman Gain
-	double K[2];	//2x1 vector
-	K[0] = Kalman->P[0][0] / S;
-	K[1] = Kalman->P[1][0] / S;
+	/* Compute common trig terms */
+	float sp = sinf(kal->phi);   float cp = cosf(kal->phi);
+	float tt = tanf(kal->theta);
 
-	//Step 6: Update Angle
-	Kalman->angle += K[0] * y;
-	Kalman->bias += K[1] * y;
+	/* x+ = x- + T * f(x,u) */
+	kal->phi   = kal->phi   + T * (p + tt * (q * sp + r * cp));
+	kal->theta = kal->theta + T * (    q * cp      - r * sp);
 
-	//Step 7: Update Covariance
-	double P00_temp = Kalman->P[0][0];
-	double P01_temp = Kalman->P[0][1];
+	/* Recompute common trig terms using new state estimates */
+	sp = sinf(kal->phi); cp = cosf(kal->phi);
+	float st = sinf(kal->theta); float ct = cosf(kal->theta); tt = st / ct;
 
-	Kalman->P[0][0] -= K[0] * P00_temp;
-	Kalman->P[0][1] -= K[0] * P01_temp;
-	Kalman->P[1][0] -= K[1] * P00_temp;
-	Kalman->P[1][1] -= K[1] * P01_temp;
+	/* Jacobian of f(x,u) */
+	float A[4] = { tt * (q * cp - r * sp), (r * cp + q * sp) * (tt * tt + 1.0f),
+			       -(r * cp + q * sp),        0.0f};
 
-	return Kalman->angle;
+	/* Update covariance matrix P+ = P- + T * (A*P- + P-*A' + Q) */
+	float Ptmp[4] = { T*(kal->Q[0]      + 2.0f*A[0]*kal->P[0] + A[1]*kal->P[1] + A[1]*kal->P[2]), T*(A[0]*kal->P[1] + A[2]*kal->P[0] + A[1]*kal->P[3] + A[3]*kal->P[1]),
+			          T*(A[0]*kal->P[2] + A[2]*kal->P[0]   + A[1]*kal->P[3] + A[3]*kal->P[2]),    T*(kal->Q[1]      + A[2]*kal->P[1] + A[2]*kal->P[2] + 2.0f*A[3]*kal->P[3]) };
+
+	kal->P[0] = kal->P[0] + Ptmp[0]; kal->P[1] = kal->P[1] + Ptmp[1];
+	kal->P[2] = kal->P[2] + Ptmp[2]; kal->P[3] = kal->P[3] + Ptmp[3];
+}
+
+void KalmanRollPitch_Update(KalmanRollPitch *kal, float *gyr, float *acc) {
+	/* Extract measurements */
+	float p = gyr[0];
+	float q = gyr[1];
+	float r = gyr[2];
+
+	float ax = acc[0];
+	float ay = acc[1];
+	float az = acc[2];
+
+	const float g = 9.81f;
+
+	/* Compute common trig terms */
+	float sp = sinf(kal->phi);   float cp = cosf(kal->phi);
+	float st = sinf(kal->theta); float ct = cosf(kal->theta);
+
+	/* Output function h(x) */
+	float h[3] = { g * st,
+			      -g * ct * sp,
+			      -g * ct * cp };
+
+	/* Jacobian of h(x) */
+	float C[6] = { 0.0f,         g * ct,
+			      -g * cp * ct,  g * sp * st,
+			       g * sp * ct,  g * cp * st };
+
+	/* Kalman gain K = P * C' / (C * P * C' + R) */
+	float S[3] = { kal->P[0]*C[1]*C[1] + kal->R[0],
+			      kal->P[1]*C[3]*C[3] + kal->R[1],
+			      kal->P[3]*C[5]*C[5] + kal->R[2] };
+
+	float K[6] = { kal->P[0] * C[1] / S[0], kal->P[1] * C[3] / S[1], kal->P[1] * C[5] / S[2],
+			      kal->P[2] * C[1] / S[0], kal->P[3] * C[3] / S[1], kal->P[3] * C[5] / S[2] };
+
+	/* Update covariance matrix P++ = (I - K * C) * P+ */
+	float Ptmp[4];
+	Ptmp[0] = kal->P[0] - K[0] * C[1] * kal->P[0]; Ptmp[1] = kal->P[1] - K[1] * C[3] * kal->P[1];
+	Ptmp[2] = kal->P[2] - K[3] * C[1] * kal->P[2]; Ptmp[3] = kal->P[3] - K[4] * C[3] * kal->P[3];
+
+	kal->P[0] = Ptmp[0]; kal->P[1] = Ptmp[1];
+	kal->P[2] = Ptmp[2]; kal->P[3] = Ptmp[3];
+
+	/* Update state estimate x++ = x+ + K * (y - h) */
+	kal->phi   = kal->phi   + K[0] * (ax - h[0]) + K[1] * (ay - h[1]) + K[2] * (az - h[2]);
+	kal->theta = kal->theta + K[3] * (ax - h[0]) + K[4] * (ay - h[1]) + K[5] * (az - h[2]);
 }
