@@ -3,7 +3,7 @@
   ******************************************************************************
   * @file           : main.c
   * @brief          : Main program body
-  ******************************************************************************
+  ***f***************************************************************************
   * @attention
   *
   * Copyright (c) 2024 STMicroelectronics.
@@ -58,6 +58,7 @@ extern IMU_ProcessedData_t imu_processed_data;
 volatile double previous_time = 0;
 KalmanRollPitch ekf;
 volatile uint8_t timer_flag = 0;
+extern IMU_RawData_t imu_raw_data;
 
 /* USER CODE END PV */
 
@@ -137,13 +138,14 @@ int main(void)
 
 		  mpu9250_getRawAngle();
 		  KalmanRollPitch_Predict(&ekf, imu_processed_data.gyro, get_dt());
-		  KalmanRollPitch_Update(&ekf, imu_processed_data.gyro, imu_processed_data.accel);
+		  KalmanRollPitch_Update(&ekf, imu_processed_data.gyro, imu_processed_data.accel, 0.0f);
 
 
 	  }
 
 	  //send data through UART
-	  snprintf(buffer, sizeof(buffer), "%.4f,%.4f\n", ekf.phi*RAD_TO_DEG, roll_angle);
+	  //snprintf(buffer, sizeof(buffer), "%.4f,%.4f\n", ekf.theta*RAD_TO_DEG, ekf.phi*RAD_TO_DEG);
+	  snprintf(buffer, sizeof(buffer), "%d,%d", imu_raw_data.accel_x, imu_raw_data.accel_y);
 	  //phi is roll, theta is pitch, both in radians
 	  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
 	  HAL_Delay(5);
