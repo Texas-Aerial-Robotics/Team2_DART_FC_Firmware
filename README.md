@@ -26,6 +26,9 @@ Common Problems:
     -"float formating support is not enabled" when printing a float through SPI
       To fix turn on these two settings
         right click on the current project > properties > C/C++ Build > MCU/MPU Settings
+        check these two boxes
+        ![image](https://github.com/user-attachments/assets/bb0ee3e6-e83a-43b7-bfc3-b714da603ac4)
+
         
         
 
