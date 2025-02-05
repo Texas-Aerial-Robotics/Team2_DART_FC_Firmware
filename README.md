@@ -18,6 +18,11 @@ Install STM32CubeIDE
 https://www.st.com/en/development-tools/stm32cubeide.html#get-software
 
 Install STM32H7 Firmware
-In CubeIDE go to Help>Configuration Tools
+In CubeIDE go to 
+Help > Configuration Tools > Manage Embedded Software Packages
+![image](https://github.com/user-attachments/assets/f08cfbec-0236-49e6-85c7-666b6fda1644)
+click install
+
+
 
 
