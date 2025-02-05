@@ -11,3 +11,11 @@ Current Goals:
 2) Design a high-level control system model
 3) Implement PID control in firmware
 4) Evaluate ways to test firmware on a physical DART prototype
+
+Documentation:
+
+Install STM32CubeIDE
+https://www.st.com/en/development-tools/stm32cubeide.html#get-software
+
+Install Firmware
+
