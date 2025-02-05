@@ -17,5 +17,7 @@ Documentation:
 Install STM32CubeIDE
 https://www.st.com/en/development-tools/stm32cubeide.html#get-software
 
-Install Firmware
+Install STM32H7 Firmware
+In CubeIDE go to Help>Configuration Tools
+
 
