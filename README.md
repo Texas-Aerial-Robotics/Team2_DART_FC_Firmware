@@ -1,6 +1,6 @@
 TEAM 2 DART FIRMWARE DEVELOPMENT
 
-Authors: Abhirit Das, Ben Park, Lucas Sanabria, Samuel Tamayo
+Authors: Abhirit Das, Ben Park, Lucas Sanabria, Jason Kim
 
 Progress:
 1) Operate an LED (10.27.2024)
