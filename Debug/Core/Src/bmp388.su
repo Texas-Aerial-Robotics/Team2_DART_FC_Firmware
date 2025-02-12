@@ -1,8 +1,8 @@
 ../Core/Src/bmp388.c:19:6:bmp388_quantize_calibration	4	static
 ../Core/Src/bmp388.c:38:6:bmp388_write_reg	16	static
 ../Core/Src/bmp388.c:46:6:bmp388_read_reg	24	static
-../Core/Src/bmp388.c:58:6:bmp388_setup	32	static
-../Core/Src/bmp388.c:84:6:bmp388_read_raw_data	16	static
-../Core/Src/bmp388.c:96:14:bmp388_compensated_temperature	24	static
-../Core/Src/bmp388.c:104:14:bmp388_compensated_pressure	48	static
-../Core/Src/bmp388.c:130:6:bmp388_getData	8	static
+../Core/Src/bmp388.c:58:6:bmp388_setup	64	static
+../Core/Src/bmp388.c:90:6:bmp388_read_raw_data	32	static
+../Core/Src/bmp388.c:107:14:bmp388_compensated_temperature	24	static
+../Core/Src/bmp388.c:115:14:bmp388_compensated_pressure	48	static
+../Core/Src/bmp388.c:141:6:bmp388_getData	8	static

@@ -57,9 +57,14 @@ void bmp388_read_reg(uint8_t reg, uint8_t *data, uint8_t len)
 }
 void bmp388_setup()
 {
+  uint8_t temp_data[22];
+  bmp388_read_reg(0x31, temp_data, 21);
   uint8_t calib_data[21];
+  for (int idx = 0; idx < 21; idx++)
+      {
+      	  calib_data[idx] = temp_data[idx + 1];
+      }
   // register of calibration data, starts from 0x31 to 0x45 all details in datasheet
-  bmp388_read_reg(0x31, calib_data, 21);
   bmp388_calib.par_t1 = (uint16_t)calib_data[0] | ((uint16_t)calib_data[1] << 8);
   bmp388_calib.par_t2 = (uint16_t)(calib_data[2] | ((uint16_t)calib_data[3] << 8));
   bmp388_calib.par_t3 = (int8_t)calib_data[4];
@@ -77,18 +82,24 @@ void bmp388_setup()
 
   bmp388_quantize_calibration(); // get the quantized calibration values for easier math later
   bmp388_write_reg(0x1B, 0x30);  // normal mode, temp pressure on by default with it
-  bmp388_write_reg(0x1C, 0x09);  // bits 5-3 are temperature oversampling, and 2-0 are pressure oversampling
-  bmp388_write_reg(0x1F, 0x00);  // coefficient for IIR filter, ideally low value for the dart
+  bmp388_write_reg(0x1C, 0x03);  // bits 5-3 are temperature oversampling, and 2-0 are pressure oversampling
+  bmp388_write_reg(0x1D, 0x02);  // ODR 50Hz, 20ms
+  bmp388_write_reg(0x1F, 0x02);  // coefficient for IIR filter, ideally low value for the dart
 }
 
 void bmp388_read_raw_data()
 {
   uint8_t data[6];
-  bmp388_read_reg(0x04, data, 6); // 0x04-0x06 pressure, 0x07-0x09 temperature
+  uint8_t temp_data[7];
+  bmp388_read_reg(0x04, temp_data, 6); // 0x04-0x06 pressure, 0x07-0x09 temperature
+  for (int idx = 0; idx < 6; idx++)
+      {
+      	  data[idx] = temp_data[idx + 1];
+      }
 
   // annoying bit shift because both are 20 bit values
-  bmp388_rawData.pressure = (((int32_t)data[0] << 16) | ((int32_t)data[1] << 8) | data[2]) >> 4;
-  bmp388_rawData.temperature = (((int32_t)data[3] << 16) | ((int32_t)data[4] << 8) | data[5]) >> 4;
+  bmp388_rawData.pressure = (((int32_t)data[2] << 16) | ((int32_t)data[1] << 8) | ((int32_t)data[0])); // ask jason
+  bmp388_rawData.temperature = (((int32_t)data[5] << 16) | ((int32_t)data[4] << 8) | ((int32_t)data[3]));
 
 }
 

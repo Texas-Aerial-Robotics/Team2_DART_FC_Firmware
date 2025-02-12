@@ -14,7 +14,7 @@
 /* struct containing important calibration data */
 typedef struct {
   uint16_t par_t1;
-  int16_t  par_t2;
+  uint16_t par_t2;
   int8_t   par_t3;
   int16_t  par_p1;
   int16_t  par_p2;
@@ -48,8 +48,8 @@ typedef struct {
 } quantized_calib_data_t;
 
 typedef struct {
-	uint32_t temperature; // later used for compensated pressure
-	uint32_t pressure;
+	volatile uint32_t temperature; // later used for compensated pressure
+	volatile uint32_t pressure;
 } BMP388_RawData_t;
 
 typedef struct {

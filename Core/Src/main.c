@@ -57,6 +57,7 @@ extern IMU_Angles_t imu_angles;
 extern Kalman_t KalmanPitch;
 extern Kalman_t KalmanRoll;
 extern BMP388_ProcessedData_t bmp388_processedData;
+extern BMP388_RawData_t bmp388_rawData;
 volatile double previous_time = 0;
 
 volatile uint8_t timer_flag = 0;
@@ -134,18 +135,18 @@ int main(void)
 	  {
 		  timer_flag = 0;	//reset timer flag
 
-		  mpu9250_getRawAngle();
+		  //mpu9250_getRawAngle();
 		  bmp388_getData();
 	  }
 
-	  double dt = get_dt();
+	  //double dt = get_dt();
 
-	  double pitch_angle = kalman_getAngle(&KalmanPitch, imu_angles.pitch, imu_processed_data.gyro_y, dt);
-	  double roll_angle = kalman_getAngle(&KalmanRoll, imu_angles.roll, imu_processed_data.gyro_x, dt);
+	 // double pitch_angle = kalman_getAngle(&KalmanPitch, imu_angles.pitch, imu_processed_data.gyro_y, dt);
+	  //double roll_angle = kalman_getAngle(&KalmanRoll, imu_angles.roll, imu_processed_data.gyro_x, dt);
 
 	  //send data through UART
-	  snprintf(buffer, sizeof(buffer), "%.4f,%.4f\n", pitch_angle, roll_angle);
-	  snprintf(buffer, sizeof(buffer), "%.4f, %.4f\n", bmp388_processedData.temperature, bmp388_processedData.pressure);
+	  //snprintf(buffer, sizeof(buffer), "%.4f,%.4f\n", pitch_angle, roll_angle);
+	  snprintf(buffer, sizeof(buffer), "%lu, %lu\n", bmp388_rawData.temperature, bmp388_rawData.pressure);
 	  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
 	  HAL_Delay(5);
 
@@ -282,11 +283,11 @@ static void MX_SPI2_Init(void)
   hspi2.Instance = SPI2;
   hspi2.Init.Mode = SPI_MODE_MASTER;
   hspi2.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi2.Init.DataSize = SPI_DATASIZE_4BIT;
+  hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
