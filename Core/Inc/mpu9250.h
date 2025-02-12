@@ -1,64 +1,56 @@
-/*
- * mpu9250.h
- *
- *  Created on: Nov 19, 2024
- *      Author: abhir
- */
-
-#ifndef INC_MPU9250_H_
-#define INC_MPU9250_H_
+#ifndef MPU9250_H
+#define MPU9250_H
 
 #include <stdint.h>
+#include <math.h>
 
-
-// Struct for raw IMU data
+// IMU data structures
 typedef struct {
-    volatile int16_t accel_x;
-    volatile int16_t accel_y;
-    volatile int16_t accel_z;
-    volatile int16_t gyro_x;
-    volatile int16_t gyro_y;
-    volatile int16_t gyro_z;
+    int16_t accel_x;
+    int16_t accel_y;
+    int16_t accel_z;
+    int16_t gyro_x;
+    int16_t gyro_y;
+    int16_t gyro_z;
 } IMU_RawData_t;
 
-// Struct for processed IMU data
 typedef struct {
-    volatile float accel_x;
-    volatile float accel_y;
-    volatile float accel_z;
-    volatile float gyro_x;
-    volatile float gyro_y;
-    volatile float gyro_z;
+    float accel_x;
+    float accel_y;
+    float accel_z;
+    float gyro_x;
+    float gyro_y;
+    float gyro_z;
 } IMU_ProcessedData_t;
 
-// Struct for Kalman filter outputs
 typedef struct {
-    double angle;          // Estimated angle
-    double bias;           // Bias of the rate sensor
-    double rate;           // Measured rate from the gyroscope
-
-    double P[2][2];        // Error covariance matrix
-    double Q_angle;        // Process noise variance for the angle
-    double Q_bias;         // Process noise variance for the bias
-    double R_measure;      // Measurement noise variance
-} Kalman_t;
-
-// Struct for orientation angles
-typedef struct {
-    volatile float roll;
-    volatile float pitch;
+    float roll;
+    float pitch;
+    float yaw;
 } IMU_Angles_t;
 
+// EKF structure
+typedef struct {
+    float q[4];                 // Quaternion [w, x, y, z]
+    float P[6][6];              // Covariance matrix
+    float Q[6][6];              // Process noise covariance
+    float R[3][3];              // Measurement noise covariance
+    float dt;                   // Time step
+} EKF_t;
 
-void mpu9250_setup();
+// Extern declarations for global instances
+extern IMU_RawData_t imu_raw_data;
+extern IMU_ProcessedData_t imu_processed_data;
+extern IMU_Angles_t imu_angles;
+extern EKF_t ekf;
+
+// Function prototypes
 void mpu9250_write_reg(uint8_t reg, uint8_t data);
 void mpu9250_read_reg(uint8_t reg, uint8_t *data, uint8_t len);
+void mpu9250_init(void);
+void mpu9250_get_data(void);
+void mpu9250_update_filter(float dt);
+void mpu9250_calibrate(unsigned int samples);
+void quaternion_to_euler(float q[4], float* roll, float* pitch, float* yaw);
 
-//update raw measurements from IMU
-void mpu9250_getRawAngle();
-
-//provide pointer to Kalman struct, newAngle requires raw angle measurement, newRate requires raw gyro measurement, dt is delta time
-double kalman_getAngle(Kalman_t *Kalman, double newAngle, double newRate, double dt);
-
-
-#endif /* INC_MPU9250_H_ */
+#endif // MPU9250_H

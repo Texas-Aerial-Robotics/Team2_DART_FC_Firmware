@@ -24,7 +24,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "mpu9250.h"
-#include "bmp388.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -34,7 +33,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define RAD_TO_DEG 57.2957795131f
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -46,8 +45,6 @@
 
 SPI_HandleTypeDef hspi1;
 SPI_HandleTypeDef hspi2;
-DMA_HandleTypeDef hdma_spi1_tx;
-DMA_HandleTypeDef hdma_spi1_rx;
 
 TIM_HandleTypeDef htim2;
 
@@ -56,9 +53,9 @@ UART_HandleTypeDef huart2;
 /* USER CODE BEGIN PV */
 extern IMU_ProcessedData_t imu_processed_data;
 volatile double previous_time = 0;
-KalmanRollPitch ekf;
 volatile uint8_t timer_flag = 0;
 extern IMU_RawData_t imu_raw_data;
+extern IMU_Angles_t imu_angles;
 
 /* USER CODE END PV */
 
@@ -66,7 +63,6 @@ extern IMU_RawData_t imu_raw_data;
 void SystemClock_Config(void);
 static void MPU_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
@@ -99,10 +95,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-  float Q[2] = {0.001f,0.001f};
-  float R[3] = {0.03f,0.03f, 0.03f};
 
-  KalmanRollPitch_Init(&ekf,0.01f,Q,R);
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -114,16 +107,14 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_SPI1_Init();
   MX_TIM2_Init();
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim2);  // Enable TIM2 interrupt
-  char buffer[40] = {'\0'};
-  mpu9250_setup();
-  //bmp388_setup();
+  char buffer[64] = {'\0'};
+  mpu9250_init();
 
   /* USER CODE END 2 */
 
@@ -136,19 +127,16 @@ int main(void)
 	  {
 		  timer_flag = 0;	//reset timer flag
 
-		  mpu9250_getRawAngle();
-		  KalmanRollPitch_Predict(&ekf, imu_processed_data.gyro, get_dt());
-		  KalmanRollPitch_Update(&ekf, imu_processed_data.gyro, imu_processed_data.accel, 0.0f);
+		  mpu9250_get_data();
+		  double dt = get_dt();
+		  mpu9250_update_filter(dt);
 
-
+		  //send data through UART
+		  float pitch_deg = imu_angles.pitch * (180.0f / M_PI);
+		  float roll_deg = imu_angles.roll * (180.0f / M_PI);
+		  snprintf(buffer, sizeof(buffer), "P:%.2f°, R:%.2f°\r\n", pitch_deg, roll_deg);
+		  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);	// maybe change HAL_MAX_DELAY to 10
 	  }
-
-	  //send data through UART
-	  //snprintf(buffer, sizeof(buffer), "%.4f,%.4f\n", ekf.theta*RAD_TO_DEG, ekf.phi*RAD_TO_DEG);
-	  snprintf(buffer, sizeof(buffer), "%d,%d", imu_raw_data.accel_x, imu_raw_data.accel_y);
-	  //phi is roll, theta is pitch, both in radians
-	  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
-	  HAL_Delay(5);
 
     /* USER CODE END WHILE */
 
@@ -402,25 +390,6 @@ static void MX_USART2_UART_Init(void)
   /* USER CODE BEGIN USART2_Init 2 */
 
   /* USER CODE END USART2_Init 2 */
-
-}
-
-/**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Stream0_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
-  /* DMA1_Stream1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
 
 }
 
