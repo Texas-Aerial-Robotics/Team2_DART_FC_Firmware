@@ -30,21 +30,21 @@ typedef struct {
 } calib_data_t;
 
 typedef struct {
-    float par_t1;
-    float par_t2;
-    float par_t3;
-    float par_p1;
-    float par_p2;
-    float par_p3;
-    float par_p4;
-    float par_p5;
-    float par_p6;
-    float par_p7;
-    float par_p8;
-    float par_p9;
-    float par_p10;
-    float par_p11;
-    float t_lin; // intermediate value for computations later
+    double par_t1;
+    double par_t2;
+    double par_t3;
+    double par_p1;
+    double par_p2;
+    double par_p3;
+    double par_p4;
+    double par_p5;
+    double par_p6;
+    double par_p7;
+    double par_p8;
+    double par_p9;
+    double par_p10;
+    double par_p11;
+    double t_lin; // intermediate value for computations later
 } quantized_calib_data_t;
 
 typedef struct {
@@ -53,8 +53,8 @@ typedef struct {
 } BMP388_RawData_t;
 
 typedef struct {
-	volatile float temperature; // later used for compensated pressure
-	volatile float pressure;
+	volatile double temperature; // later used for compensated pressure
+	volatile double pressure;
 } BMP388_ProcessedData_t;
 
 
