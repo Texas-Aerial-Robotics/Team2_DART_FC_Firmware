@@ -13,6 +13,7 @@ calib_data_t bmp388_calib;
 quantized_calib_data_t quantized_bmp388_calib;
 BMP388_RawData_t bmp388_rawData;
 BMP388_ProcessedData_t bmp388_processedData;
+volatile double altitude;
 
 
 // quantized values directly from the datasheet
@@ -84,24 +85,22 @@ void bmp388_setup()
   bmp388_quantize_calibration(); // get the quantized calibration values for easier math later
   bmp388_write_reg(0x1A, 0x00);
   bmp388_write_reg(0x1B, 0x33);  // normal mode, temp pressure on by default with it
-  bmp388_write_reg(0x1C, 0x00);  // bits 5-3 are temperature oversampling, and 2-0 are pressure oversampling
+  bmp388_write_reg(0x1C, 0x03);  // bits 5-3 are temperature oversampling, and 2-0 are pressure oversampling
   bmp388_write_reg(0x1D, 0x02);  // ODR 50Hz, 20ms
-  bmp388_write_reg(0x1F, 0x02);  // coefficient for IIR filter, ideally low value for the dart
+  bmp388_write_reg(0x1F, 0x04);  // coefficient for IIR filter, ideally low value for the dart
 }
 
 void bmp388_read_raw_data()
 {
   uint8_t data[6];
   bmp388_read_reg(0x04, data, 6); // 0x04-0x06 pressure, 0x07-0x09 temperature
-
-  // annoying bit shift because both are 20 bit values
-  bmp388_rawData.pressure = (((int32_t)data[2] << 16) | ((int32_t)data[1] << 8) | ((int32_t)data[0])); // ask jason
+  bmp388_rawData.pressure = (((int32_t)data[2] << 16) | ((int32_t)data[1] << 8) | ((int32_t)data[0]));
   bmp388_rawData.temperature = (((int32_t)data[5] << 16) | ((int32_t)data[4] << 8) | ((int32_t)data[3]));
 
 }
 
 // the math performed in both functions are directly from the datasheet
-static float bmp388_compensated_temperature(uint32_t raw_temp)
+static double bmp388_compensated_temperature(uint32_t raw_temp)
 {
   double partial_data1 = (double)(raw_temp)-quantized_bmp388_calib.par_t1;
   double partial_data2 = partial_data1 * quantized_bmp388_calib.par_t2;
@@ -109,7 +108,7 @@ static float bmp388_compensated_temperature(uint32_t raw_temp)
   return quantized_bmp388_calib.t_lin;
 }
 
-static float bmp388_compensated_pressure(uint32_t raw_pressure)
+static double bmp388_compensated_pressure(uint32_t raw_pressure)
 {
   double pressure;
   double partial_data1, partial_data2, partial_data3, partial_data4;
@@ -128,11 +127,16 @@ static float bmp388_compensated_pressure(uint32_t raw_pressure)
   partial_data1 = (double)raw_pressure * (double)raw_pressure;
   partial_data2 = quantized_bmp388_calib.par_p9 + quantized_bmp388_calib.par_p10 * quantized_bmp388_calib.t_lin;
   partial_data3 = partial_data1 * partial_data2;
-  partial_data4 = ((double)raw_pressure * (double)raw_pressure * (double)raw_pressure) * quantized_bmp388_calib.par_p11;
+  partial_data4 = partial_data3 + ((double)raw_pressure * (double)raw_pressure * (double)raw_pressure) * quantized_bmp388_calib.par_p11;
 
-  pressure = partial_out1 + partial_out2 + partial_data3 + partial_data4;
+  pressure = partial_out1 + partial_out2 + partial_data4;
 
   return pressure;
+}
+double bmp388_getAltitude(double pressure)
+{
+	double altitude = 44330 * (1-pow(pressure/1019.0e2, 0.190294)); // pressure divided by pressure of sea level at austin
+	return altitude;
 }
 
 void bmp388_getData()
@@ -140,4 +144,5 @@ void bmp388_getData()
   bmp388_read_raw_data();
   bmp388_processedData.temperature = bmp388_compensated_temperature(bmp388_rawData.temperature);
   bmp388_processedData.pressure = bmp388_compensated_pressure(bmp388_rawData.pressure);
+  altitude = bmp388_getAltitude(bmp388_processedData.pressure);
 }
