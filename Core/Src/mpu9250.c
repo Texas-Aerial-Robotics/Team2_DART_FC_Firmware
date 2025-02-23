@@ -161,14 +161,14 @@ void mpu9250_getProcessedAngle()
 {
 	  mpu9250_getRawData();
 
-	  imu_processed_data.accel_x = (float)imu_raw_data.accel_x/4096.0;
-	  imu_processed_data.accel_y = (float)imu_raw_data.accel_y/4096.0;
-	  imu_processed_data.accel_z = (float)imu_raw_data.accel_z/4096.0;
-	  imu_processed_data.accel_z -= 4;	//offset AccZ to be around 0
+	  imu_processed_data.accel_x = ((float)imu_raw_data.accel_x/4096.0) * 9.81;
+	  imu_processed_data.accel_y = ((float)imu_raw_data.accel_y/4096.0) * 9.81;
+	  imu_processed_data.accel_z = ((float)imu_raw_data.accel_z/4096.0) * 9.81;
+//	  imu_processed_data.accel_z -= 4;	//offset AccZ to be around 0
 
-	  imu_processed_data.gyro_x = ((float)imu_raw_data.gyro_x - imu_processed_data.gyro_offX)/65.5;
-	  imu_processed_data.gyro_y = ((float)imu_raw_data.gyro_y - imu_processed_data.gyro_offY)/65.5;
-	  imu_processed_data.gyro_z = ((float)imu_raw_data.gyro_z - imu_processed_data.gyro_offZ)/65.5;
+	  imu_processed_data.gyro_x = ((float)imu_raw_data.gyro_x - imu_processed_data.gyro_offX)/65.5 * M_PI/180.0f;
+	  imu_processed_data.gyro_y = ((float)imu_raw_data.gyro_y - imu_processed_data.gyro_offY)/65.5 * M_PI/180.0f;;
+	  imu_processed_data.gyro_z = ((float)imu_raw_data.gyro_z - imu_processed_data.gyro_offZ)/65.5 * M_PI/180.0f;;
 
 //	  mpu9250_read_reg(0x49, imu_data, sizeof(imu_data));
 //	  imu_raw_data.mag_x = ((int16_t)imu_data[0]<<8) | imu_data[1];

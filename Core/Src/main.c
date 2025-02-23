@@ -121,9 +121,7 @@ int main(void)
   HAL_TIM_Base_Start_IT(&htim2);  // Enable TIM2 interrupt
   char buffer[40] = {'\0'};
   mpu9250_setup();
-  bmp388_setup();
-  //bmp388_setup();
-
+//  bmp388_setup();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -136,7 +134,7 @@ int main(void)
 		  timer_flag = 0;	//reset timer flag
 
 		  mpu9250_getProcessedAngle();
-		  bmp388_getData();
+//		  bmp388_getData();
 	  }
 
 	  //send data through UART
