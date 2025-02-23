@@ -43,6 +43,7 @@ void mpu9250_setup()
 	mpu9250_write_reg(26, 0x05);		//enable digital low pass filter
 	mpu9250_write_reg(28, 0x10);		//set accelerometer full scale to +-8g
 	mpu9250_write_reg(27, 0x08);		//set gyroscope full scale full scale to +-500deg
+	mpu9250_calibrateGyro(1500);
 //
 //	// magnetometer setup
 //	mpu9250_write_reg(0x6A, 0x20);
@@ -101,9 +102,38 @@ void mpu9250_init_ak8963()
     mpu9250_write_reg(0x27, 0x87);                   // Enable reading 7 bytes (0x80 | 7)
 }
 
+void mpu9250_calibrateGyro(uint16_t numCalPoints)
+{
+    // Init
+    int32_t x = 0;
+    int32_t y = 0;
+    int32_t z = 0;
+
+    // Zero guard
+    if (numCalPoints == 0)
+    {
+        numCalPoints = 1;
+    }
+
+    // Save specified number of points
+    for (uint16_t ii = 0; ii < numCalPoints; ii++)
+    {
+        mpu9250_getRawData();
+        x += imu_raw_data.gyro_x;
+        y += imu_raw_data.gyro_y;
+        z += imu_raw_data.gyro_z;
+        HAL_Delay(3);
+    }
+
+    // Average the saved data points to find the gyroscope offset
+    imu_processed_data.gyro_offX = (float)x / (float)numCalPoints;
+    imu_processed_data.gyro_offY = (float)y / (float)numCalPoints;
+    imu_processed_data.gyro_offZ = (float)z / (float)numCalPoints;
+}
 
 
-void mpu9250_getRawAngle()
+
+void mpu9250_getRawData()
 {
 	  uint8_t imu_data[6];
 
@@ -112,22 +142,24 @@ void mpu9250_getRawAngle()
 	  imu_raw_data.accel_y = ((int16_t)imu_data[2]<<8) | imu_data[3];
 	  imu_raw_data.accel_z = ((int16_t)imu_data[4]<<8) | imu_data[5];
 
-	  imu_processed_data.accel_x = (float)imu_raw_data.accel_x/4096.0;
-	  imu_processed_data.accel_y = (float)imu_raw_data.accel_y/4096.0;
-	  imu_processed_data.accel_z = (float)imu_raw_data.accel_z/4096.0;
-//	  imu_processed_data.accel_z -= 4;	//offset AccZ to be around 0
-
 	  mpu9250_read_reg(67, imu_data, sizeof(imu_data));
 	  imu_raw_data.gyro_x = ((int16_t)imu_data[0]<<8) | imu_data[1];
 	  imu_raw_data.gyro_y = ((int16_t)imu_data[2]<<8) | imu_data[3];
 	  imu_raw_data.gyro_z = ((int16_t)imu_data[4]<<8) | imu_data[5];
+}
 
-	  imu_processed_data.gyro_x = (float)imu_raw_data.gyro_x/65.5;
-	  imu_processed_data.gyro_y = (float)imu_raw_data.gyro_y/65.5;
-	  imu_processed_data.gyro_z = (float)imu_raw_data.gyro_z/65.5;
-//	  imu_processed_data.gyro_x -= 4;	//offset GyroX to be around 0
-//	  imu_processed_data.gyro_y += 20;	//offset GyroY to be around 0
-//	  imu_processed_data.gyro_z += 5;	//offset GyroZ to be around 0
+void mpu9250_getProcessedAngle()
+{
+	  mpu9250_getRawData();
+
+	  imu_processed_data.accel_x = (float)imu_raw_data.accel_x/4096.0;
+	  imu_processed_data.accel_y = (float)imu_raw_data.accel_y/4096.0;
+	  imu_processed_data.accel_z = (float)imu_raw_data.accel_z/4096.0;
+	  imu_processed_data.accel_z -= 4;	//offset AccZ to be around 0
+
+	  imu_processed_data.gyro_x = ((float)imu_raw_data.gyro_x - imu_processed_data.gyro_offX)/65.5;
+	  imu_processed_data.gyro_y = ((float)imu_raw_data.gyro_y - imu_processed_data.gyro_offY)/65.5;
+	  imu_processed_data.gyro_z = ((float)imu_raw_data.gyro_z - imu_processed_data.gyro_offZ)/65.5;
 
 //	  mpu9250_read_reg(0x49, imu_data, sizeof(imu_data));
 //	  imu_raw_data.mag_x = ((int16_t)imu_data[0]<<8) | imu_data[1];
@@ -137,5 +169,4 @@ void mpu9250_getRawAngle()
 	  imu_angles.roll=atan(imu_processed_data.accel_y/sqrt((imu_processed_data.accel_x*imu_processed_data.accel_x)+(imu_processed_data.accel_z*imu_processed_data.accel_z)))*1/(3.142/180);
 	  imu_angles.pitch=-atan(imu_processed_data.accel_x/sqrt((imu_processed_data.accel_y*imu_processed_data.accel_y)+(imu_processed_data.accel_z*imu_processed_data.accel_z)))*1/(3.142/180);
 }
-
 

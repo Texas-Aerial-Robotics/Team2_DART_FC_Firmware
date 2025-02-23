@@ -26,6 +26,9 @@ typedef struct {
 
 // Struct for processed IMU data
 typedef struct {
+	float gyro_offX;
+	float gyro_offY;
+	float gyro_offZ;
     volatile float accel_x;
     volatile float accel_y;
     volatile float accel_z;
@@ -66,9 +69,11 @@ void mpu9250_setup();
 void mpu9250_write_reg(uint8_t reg, uint8_t data);
 void mpu9250_read_reg(uint8_t reg, uint8_t *data, uint8_t len);
 
-//update raw measurements from IMU
-void mpu9250_getRawAngle();
+void mpu9250_calibrateGyro(uint16_t numCalPoints);
 
+//update raw measurements from IMU
+void mpu9250_getRawData();
+void mpu9250_getProcessedAngle();
 
 
 #endif /* INC_MPU9250_H_ */

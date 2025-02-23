@@ -135,7 +135,7 @@ int main(void)
 	  {
 		  timer_flag = 0;	//reset timer flag
 
-		  mpu9250_getRawAngle();
+		  mpu9250_getProcessedAngle();
 		  bmp388_getData();
 	  }
 
