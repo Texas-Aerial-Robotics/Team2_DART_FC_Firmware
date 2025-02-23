@@ -1,3 +1,4 @@
+"./Core/Src/MahonyAHRS.o"
 "./Core/Src/bmp388.o"
 "./Core/Src/main.o"
 "./Core/Src/mpu9250.o"
