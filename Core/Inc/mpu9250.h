@@ -19,6 +19,9 @@ typedef struct {
     volatile int16_t gyro_x;
     volatile int16_t gyro_y;
     volatile int16_t gyro_z;
+    volatile int16_t mag_x;
+    volatile int16_t mag_y;
+    volatile int16_t mag_z;
 } IMU_RawData_t;
 
 // Struct for processed IMU data
@@ -29,7 +32,16 @@ typedef struct {
     volatile float gyro_x;
     volatile float gyro_y;
     volatile float gyro_z;
+    volatile float mag_x;
+    volatile float mag_y;
+    volatile float mag_z;
 } IMU_ProcessedData_t;
+
+typedef struct {
+	float calibData1;
+	float calibData2;
+	float calibData3;
+} Mag_CalibData_t;
 
 // Struct for Kalman filter outputs
 typedef struct {
@@ -57,8 +69,6 @@ void mpu9250_read_reg(uint8_t reg, uint8_t *data, uint8_t len);
 //update raw measurements from IMU
 void mpu9250_getRawAngle();
 
-//provide pointer to Kalman struct, newAngle requires raw angle measurement, newRate requires raw gyro measurement, dt is delta time
-double kalman_getAngle(Kalman_t *Kalman, double newAngle, double newRate, double dt);
 
 
 #endif /* INC_MPU9250_H_ */

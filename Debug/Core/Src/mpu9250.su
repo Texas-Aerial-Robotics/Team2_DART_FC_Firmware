@@ -1,5 +1,5 @@
-../Core/Src/mpu9250.c:36:6:mpu9250_write_reg	16	static
-../Core/Src/mpu9250.c:44:6:mpu9250_read_reg	24	static
-../Core/Src/mpu9250.c:57:6:mpu9250_setup	8	static
-../Core/Src/mpu9250.c:65:6:mpu9250_getRawAngle	24	static
-../Core/Src/mpu9250.c:95:8:kalman_getAngle	96	static
+../Core/Src/mpu9250.c:20:6:mpu9250_write_reg	16	static
+../Core/Src/mpu9250.c:28:6:mpu9250_read_reg	24	static
+../Core/Src/mpu9250.c:41:6:mpu9250_setup	8	static
+../Core/Src/mpu9250.c:54:6:mpu9250_init_ak8963	16	static
+../Core/Src/mpu9250.c:106:6:mpu9250_getRawAngle	24	static
