@@ -8,6 +8,9 @@
 #include <math.h>
 #include "mpu9250.h"
 #include "main.h"
+#include "MahonyAHRS.h"
+
+#define RAD_TO_DEG (180.0 / M_PI)
 
 extern SPI_HandleTypeDef hspi1;
 
@@ -16,6 +19,8 @@ IMU_RawData_t imu_raw_data;         // Instance of raw IMU data
 IMU_ProcessedData_t imu_processed_data; // Instance of processed IMU data
 IMU_Angles_t imu_angles;            // Instance of IMU angles
 Mag_CalibData_t mag_calibration_data;
+
+float quat[4];
 
 void mpu9250_write_reg(uint8_t reg, uint8_t data)
 {
@@ -44,6 +49,10 @@ void mpu9250_setup()
 	mpu9250_write_reg(28, 0x10);		//set accelerometer full scale to +-8g
 	mpu9250_write_reg(27, 0x08);		//set gyroscope full scale full scale to +-500deg
 	mpu9250_calibrateGyro(1500);
+	quat[0] = 1.0f;
+	quat[1] = 0.0f;
+	quat[2] = 0.0f;
+	quat[3] = 0.0f;
 //
 //	// magnetometer setup
 //	mpu9250_write_reg(0x6A, 0x20);
@@ -166,7 +175,14 @@ void mpu9250_getProcessedAngle()
 //	  imu_raw_data.mag_y = ((int16_t)imu_data[2]<<8) | imu_data[3];
 //	  imu_raw_data.mag_z = ((int16_t)imu_data[4]<<8) | imu_data[5];
 
-	  imu_angles.roll=atan(imu_processed_data.accel_y/sqrt((imu_processed_data.accel_x*imu_processed_data.accel_x)+(imu_processed_data.accel_z*imu_processed_data.accel_z)))*1/(3.142/180);
-	  imu_angles.pitch=-atan(imu_processed_data.accel_x/sqrt((imu_processed_data.accel_y*imu_processed_data.accel_y)+(imu_processed_data.accel_z*imu_processed_data.accel_z)))*1/(3.142/180);
+	  MahonyAHRSupdateIMU(quat, imu_processed_data.gyro_x, imu_processed_data.gyro_y, imu_processed_data.gyro_z, imu_processed_data.accel_x, imu_processed_data.accel_y ,imu_processed_data.accel_z);
+
+	    /* Quternion to Euler */
+	  float radPitch = asinf(-2.0f * (quat[1] * quat[3] - quat[0] * quat[2]));
+	  float radRoll = atan2f(2.0f * (quat[0] * quat[1] + quat[2] * quat[3]), 2.0f * (quat[0] * quat[0] + quat[3] * quat[3]) - 1.0f);
+	    /* Radian to Degree*/
+	  imu_angles.pitch = radPitch * RAD_TO_DEG;
+	  imu_angles.roll = radRoll * RAD_TO_DEG;
+
 }
 

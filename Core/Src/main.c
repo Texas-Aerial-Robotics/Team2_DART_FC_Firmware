@@ -141,8 +141,8 @@ int main(void)
 
 	  //send data through UART
 	  //snprintf(buffer, sizeof(buffer), "%.4f,%.4f\n", pitch_angle, roll_angle);
-	  snprintf(buffer, sizeof(buffer), "%lu, %lu\n", bmp388_rawData.temperature, bmp388_rawData.pressure);
-	  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+	  //snprintf(buffer, sizeof(buffer), "%lu, %lu\n", bmp388_rawData.temperature, bmp388_rawData.pressure);
+	  //HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
 
     /* USER CODE END WHILE */
 
