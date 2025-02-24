@@ -2,9 +2,9 @@ name: Build STM32 Project
 
 on:
   push:
-    branches: ["*"]
+    branches: ["master", "workflows"]
   pull_request:
-    branches: ["*"]
+    branches: ["master", "workflows"]
 
 jobs:
   build:
