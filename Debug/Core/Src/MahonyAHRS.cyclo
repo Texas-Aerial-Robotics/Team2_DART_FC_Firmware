@@ -1,3 +1,0 @@
-../Core/Src/MahonyAHRS.c:45:6:MahonyAHRSupdate	8
-../Core/Src/MahonyAHRS.c:149:6:MahonyAHRSupdateIMU	5
-../Core/Src/MahonyAHRS.c:219:7:invSqrt	1

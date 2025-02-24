@@ -1,9 +1,0 @@
-../Core/Src/bmp388.c:20:6:bmp388_quantize_calibration	4	static
-../Core/Src/bmp388.c:39:6:bmp388_write_reg	16	static
-../Core/Src/bmp388.c:47:6:bmp388_read_reg	24	static
-../Core/Src/bmp388.c:61:6:bmp388_setup	40	static
-../Core/Src/bmp388.c:93:6:bmp388_read_raw_data	16	static
-../Core/Src/bmp388.c:103:15:bmp388_compensated_temperature	32	static
-../Core/Src/bmp388.c:111:15:bmp388_compensated_pressure	72	static
-../Core/Src/bmp388.c:136:8:bmp388_getAltitude	24	static
-../Core/Src/bmp388.c:142:6:bmp388_getData	8	static
