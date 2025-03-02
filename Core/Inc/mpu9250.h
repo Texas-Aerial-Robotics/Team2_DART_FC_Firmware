@@ -62,6 +62,7 @@ typedef struct {
 typedef struct {
     volatile float roll;
     volatile float pitch;
+    volatile float yaw;
 } IMU_Angles_t;
 
 

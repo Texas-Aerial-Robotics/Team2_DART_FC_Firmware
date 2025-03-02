@@ -180,9 +180,11 @@ void mpu9250_getProcessedAngle()
 	    /* Quternion to Euler */
 	  float radPitch = asinf(-2.0f * (quat[1] * quat[3] - quat[0] * quat[2]));
 	  float radRoll = atan2f(2.0f * (quat[0] * quat[1] + quat[2] * quat[3]), 2.0f * (quat[0] * quat[0] + quat[3] * quat[3]) - 1.0f);
+	  float radYaw =  atan2f(2.0f * (quat[0] * quat[3] + quat[1] * quat[2]), 2.0f * (quat[0] * quat[0] + quat[1] * quat[1]) - 1.0f);
 	    /* Radian to Degree*/
 	  imu_angles.pitch = radPitch * RAD_TO_DEG;
 	  imu_angles.roll = radRoll * RAD_TO_DEG;
+	  imu_angles.yaw = radYaw * RAD_TO_DEG;
 
 }
 

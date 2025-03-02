@@ -4,4 +4,4 @@
 ../Core/Src/mpu9250.c:64:6:mpu9250_init_ak8963	16	static
 ../Core/Src/mpu9250.c:114:6:mpu9250_calibrateGyro	32	static
 ../Core/Src/mpu9250.c:145:6:mpu9250_getRawData	16	static
-../Core/Src/mpu9250.c:160:6:mpu9250_getProcessedAngle	16	static
+../Core/Src/mpu9250.c:160:6:mpu9250_getProcessedAngle	24	static
