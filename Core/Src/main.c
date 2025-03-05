@@ -25,6 +25,7 @@
 #include <string.h>
 #include "mpu9250.h"
 #include "bmp388.h"
+#include "arm_math.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -58,6 +59,7 @@ extern Kalman_t KalmanPitch;
 extern Kalman_t KalmanRoll;
 extern BMP388_ProcessedData_t bmp388_processedData;
 extern BMP388_RawData_t bmp388_rawData;
+arm_pid_instance_q31 PID;
 volatile double previous_time = 0;
 
 volatile uint8_t timer_flag = 0;
@@ -117,6 +119,7 @@ int main(void)
   MX_SPI1_Init();
   MX_TIM2_Init();
   MX_SPI2_Init();
+  arm_pid_init_q31(&PID, 1);
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim2);  // Enable TIM2 interrupt
   char buffer[40] = {'\0'};
