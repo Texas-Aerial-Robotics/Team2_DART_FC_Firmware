@@ -25,7 +25,6 @@
 #include <string.h>
 #include "mpu9250.h"
 #include "bmp388.h"
-#include "arm_math.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -48,6 +47,7 @@
 SPI_HandleTypeDef hspi1;
 SPI_HandleTypeDef hspi2;
 
+TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart2;
@@ -59,11 +59,11 @@ extern Kalman_t KalmanPitch;
 extern Kalman_t KalmanRoll;
 extern BMP388_ProcessedData_t bmp388_processedData;
 extern BMP388_RawData_t bmp388_rawData;
-arm_pid_instance_q31 PID;
 volatile double previous_time = 0;
 
 volatile uint8_t timer_flag = 0;
-
+volatile uint8_t update_ccr = 0;
+uint16_t duty1, duty2;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -74,8 +74,11 @@ static void MX_USART2_UART_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_SPI2_Init(void);
+static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 double get_dt();
+uint16_t setDutyCH1(TIM_HandleTypeDef *htim, float angle);
+uint16_t setDutyCH2(TIM_HandleTypeDef *htim, float angle);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -119,9 +122,12 @@ int main(void)
   MX_SPI1_Init();
   MX_TIM2_Init();
   MX_SPI2_Init();
-  arm_pid_init_q31(&PID, 1);
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim2);  // Enable TIM2 interrupt
+  HAL_TIM_Base_Start_IT(&htim1);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1); // Enable TIM1 Channel 1 interrupt
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2); // Enable TIM1 Channel 1 interrupt
   char buffer[40] = {'\0'};
   mpu9250_setup();
   bmp388_setup();
@@ -140,10 +146,14 @@ int main(void)
 		  bmp388_getData();
 	  }
 
-	  //send data through UART
-	  snprintf(buffer, sizeof(buffer), "%.4f,%.4f,%.4f\n", imu_angles.pitch, imu_angles.roll, imu_angles.yaw);
-	  //snprintf(buffer, sizeof(buffer), "%lu, %lu\n", bmp388_rawData.temperature, bmp388_rawData.pressure);
-	  //HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+	  if(update_ccr){
+		  update_ccr = 0; //reset update ccr flag
+
+		  duty1=setDutyCH1(&htim1, imu_angles.pitch);
+		  duty2=setDutyCH2(&htim1, imu_angles.roll);
+
+	  }
+
 
     /* USER CODE END WHILE */
 
@@ -308,6 +318,91 @@ static void MX_SPI2_Init(void)
 }
 
 /**
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 120-1;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 20000-1;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger2 = TIM_TRGO2_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 1500;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.Pulse = 1500-1;
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
+  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
+  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+  sBreakDeadTimeConfig.DeadTime = 0;
+  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
+  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+  sBreakDeadTimeConfig.BreakFilter = 0;
+  sBreakDeadTimeConfig.Break2State = TIM_BREAK2_DISABLE;
+  sBreakDeadTimeConfig.Break2Polarity = TIM_BREAK2POLARITY_HIGH;
+  sBreakDeadTimeConfig.Break2Filter = 0;
+  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+  HAL_TIM_MspPostInit(&htim1);
+
+}
+
+/**
   * @brief TIM2 Initialization Function
   * @param None
   * @retval None
@@ -413,6 +508,7 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
@@ -437,11 +533,48 @@ double get_dt()
     previous_time = current_time;  // Update for the next call
     return dt;
 }
+
+uint16_t setDutyCH1(TIM_HandleTypeDef *htim, float angle) {
+    //limit range from -90 to 90 degrees
+    if (angle < -90.0f) angle = -90.0f;
+    if (angle > 90.0f) angle = 90.0f;
+
+    // Scale angle to pulse time in microseconds (1000 µs to 2000 µs)(total period is 20000 µs)
+    //confirm math w jason
+    float pulseTime = 1500.0f + (angle * 500.0f) / 90.0f;
+
+    // Convert pulse width in µs to CCR value
+    uint16_t ccrValue = (uint16_t)(pulseTime);
+
+    htim->Instance->CCR1 = ccrValue;
+    return ccrValue;
+}
+
+uint16_t setDutyCH2(TIM_HandleTypeDef *htim, float angle) {
+    //limit range from -90 to 90 degrees
+    if (angle < -90.0f) angle = -90.0f;
+    if (angle > 90.0f) angle = 90.0f;
+
+    // Scale angle to pulse time in microseconds (1000 µs to 2000 µs)(total period is 20000 µs)
+    //confirm math w jason
+    float pulseTime = 1500.0f + (angle * 500.0f) / 90.0f;
+
+    // Convert pulse width in µs to CCR value
+    uint16_t ccrValue = (uint16_t)(pulseTime);
+
+    htim->Instance->CCR2 = ccrValue;
+    return ccrValue;
+}
+
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	if (htim == &htim2)
 	{
 		timer_flag = 1;
+	}
+	if (htim == &htim1)
+	{
+		update_ccr = 1;
 	}
 }
 int _write(int file, char *ptr, int len)
