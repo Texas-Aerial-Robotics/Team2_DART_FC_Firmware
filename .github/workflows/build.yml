@@ -2,9 +2,9 @@ name: Build STM32 Project
 
 on:
   push:
-    branches: ["master", "workflows"]
+    branches: ["master","vscode"]
   pull_request:
-    branches: ["master", "workflows"]
+    branches: ["master", "vscode"]
 
 jobs:
   build:
@@ -19,5 +19,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-arm-none-eabi
 
-      - name: Build project
-        run: make
+      - name: Configure project with CMake
+        run: |
+          # If you need a toolchain file, add: -DCMAKE_TOOLCHAIN_FILE=path/to/your/toolchain.cmake
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build project with CMake
+        run: cmake --build build --config Debug
