@@ -14,13 +14,13 @@
 
 extern SPI_HandleTypeDef hspi1;
 
+float quat[4];
+
 // Declare global variables for the IMU data
 IMU_RawData_t imu_raw_data;         // Instance of raw IMU data
 IMU_ProcessedData_t imu_processed_data; // Instance of processed IMU data
 IMU_Angles_t imu_angles;            // Instance of IMU angles
 Mag_CalibData_t mag_calibration_data;
-
-float quat[4];
 
 void mpu9250_write_reg(uint8_t reg, uint8_t data)
 {
@@ -53,62 +53,6 @@ void mpu9250_setup()
 	quat[1] = 0.0f;
 	quat[2] = 0.0f;
 	quat[3] = 0.0f;
-//
-//	// magnetometer setup
-//	mpu9250_write_reg(0x6A, 0x20);
-//	mpu9250_write_reg(0x24, 0x0D);
-//	mpu9250_write_reg(0x25, 0x8C);
-//	mpu9250_write_reg(0x26, 0x03);
-}
-
-void mpu9250_init_ak8963()
-{
-    uint8_t calibData[3]; // buffer for factory calibration data
-
-    mpu9250_write_reg(0x27, 0x00);  // disable I2C_SLV0_CTRL temporarily
-
-    mpu9250_write_reg(0x25, 0x0C);
-    // I2C_SLV0_REG (0x26): Point to AK8963_CNTL (0x0A)
-    mpu9250_write_reg(0x26, 0x0A);
-    // I2C_SLV0_DO (0x63): Data to write: 0x00 (power down)
-    mpu9250_write_reg(0x63, 0x00);
-    // I2C_SLV0_CTRL (0x27): Enable 1-byte write (0x80 | 1)
-    mpu9250_write_reg(0x27, 0x81);
-    HAL_Delay(10);
-
-    mpu9250_write_reg(0x63, 0x0F);
-    mpu9250_write_reg(0x27, 0x81);
-    HAL_Delay(10);
-
-    mpu9250_write_reg(0x25, 0x0C | 0x80);
-    // Set I2C_SLV0_REG to AK8963_ASAX (starting register for calibration data)
-    mpu9250_write_reg(0x26, 0x10);
-    // Enable reading 3 bytes (0x80 | 3)
-    mpu9250_write_reg(0x27, 0x83);
-    HAL_Delay(10);
-
-    mpu9250_read_reg(0x49, calibData, 3);
-
-    mag_calibration_data.calibData1 = (((float)calibData[0] - 128.0f) / 256.0f) + 1.0f;
-    mag_calibration_data.calibData2 = (((float)calibData[1] - 128.0f) / 256.0f) + 1.0f;
-    mag_calibration_data.calibData3 = (((float)calibData[2] - 128.0f) / 256.0f) + 1.0f;
-
-    mpu9250_write_reg(0x25, 0x0C);
-    mpu9250_write_reg(0x26, 0x0A);
-    mpu9250_write_reg(0x63, 0x00);  // Power down command
-    mpu9250_write_reg(0x27, 0x81);
-    HAL_Delay(10);
-
-    uint8_t ctrlValue = (1 << 4) | 0;
-    mpu9250_write_reg(0x63, ctrlValue);
-    mpu9250_write_reg(0x27, 0x81);
-    HAL_Delay(10);
-
-    // ---- Step 6. Restore Automatic Continuous Reading ----
-    // Reconfigure the I2C slave to read 7 bytes from the magnetometer starting at register 0x03 (HXL)
-    mpu9250_write_reg(0x25, 0x0C | 0x80); // Set to read mode
-    mpu9250_write_reg(0x26, 0x03);                   // Start at HXL register
-    mpu9250_write_reg(0x27, 0x87);                   // Enable reading 7 bytes (0x80 | 7)
 }
 
 void mpu9250_calibrateGyro(uint16_t numCalPoints)
@@ -169,11 +113,6 @@ void mpu9250_getProcessedAngle()
 	  imu_processed_data.gyro_x = ((float)imu_raw_data.gyro_x - imu_processed_data.gyro_offX)/65.5 * M_PI/180.0f;
 	  imu_processed_data.gyro_y = ((float)imu_raw_data.gyro_y - imu_processed_data.gyro_offY)/65.5 * M_PI/180.0f;;
 	  imu_processed_data.gyro_z = ((float)imu_raw_data.gyro_z - imu_processed_data.gyro_offZ)/65.5 * M_PI/180.0f;;
-
-//	  mpu9250_read_reg(0x49, imu_data, sizeof(imu_data));
-//	  imu_raw_data.mag_x = ((int16_t)imu_data[0]<<8) | imu_data[1];
-//	  imu_raw_data.mag_y = ((int16_t)imu_data[2]<<8) | imu_data[3];
-//	  imu_raw_data.mag_z = ((int16_t)imu_data[4]<<8) | imu_data[5];
 
 	  MahonyAHRSupdateIMU(quat, imu_processed_data.gyro_x, imu_processed_data.gyro_y, imu_processed_data.gyro_z, imu_processed_data.accel_x, imu_processed_data.accel_y ,imu_processed_data.accel_z);
 

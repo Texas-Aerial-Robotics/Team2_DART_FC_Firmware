@@ -25,6 +25,7 @@
 #include <string.h>
 #include "mpu9250.h"
 #include "bmp388.h"
+#include "MahonyAHRS.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -34,7 +35,11 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define MPU6500_WHO_AM_I_REG  0x75
+#define READ_FLAG             0x80
+#define EXPECTED_WHO_AM_I     0x70
+#define RAD_TO_DEG (180.0f / M_PI)
+#define SENSOR_DMA_LENGTH 15  // 1 command byte + 14 data bytes
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -46,21 +51,33 @@
 
 SPI_HandleTypeDef hspi1;
 SPI_HandleTypeDef hspi2;
+DMA_HandleTypeDef hdma_spi1_rx;
+DMA_HandleTypeDef hdma_spi1_tx;
 
 TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+extern IMU_RawData_t imu_raw_data;
 extern IMU_ProcessedData_t imu_processed_data;
 extern IMU_Angles_t imu_angles;
-extern Kalman_t KalmanPitch;
-extern Kalman_t KalmanRoll;
 extern BMP388_ProcessedData_t bmp388_processedData;
 extern BMP388_RawData_t bmp388_rawData;
+
+extern float quat[4];
+
 volatile double previous_time = 0;
 
 volatile uint8_t timer_flag = 0;
+
+// DMA buffers for sensor transfer
+uint8_t sensor_tx_buffer[SENSOR_DMA_LENGTH];
+uint8_t sensor_rx_buffer[SENSOR_DMA_LENGTH];
+
+// global UART buffer
+#define UART_BUFFER_SIZE 64
+uint8_t uart_buffer[UART_BUFFER_SIZE];
 
 /* USER CODE END PV */
 
@@ -68,12 +85,12 @@ volatile uint8_t timer_flag = 0;
 void SystemClock_Config(void);
 static void MPU_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_SPI2_Init(void);
 /* USER CODE BEGIN PFP */
-double get_dt();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -113,6 +130,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_SPI1_Init();
   MX_TIM2_Init();
@@ -122,25 +140,19 @@ int main(void)
   char buffer[40] = {'\0'};
   mpu9250_setup();
   bmp388_setup();
+
+  Start_MPU9250_DMA_Read();
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  //process IMU data on timer interrupt
-	  if(timer_flag)
-	  {
-		  timer_flag = 0;	//reset timer flag
 
-		  mpu9250_getProcessedAngle();
-		  bmp388_getData();
-	  }
-
-	  //send data through UART
-	  snprintf(buffer, sizeof(buffer), "%.4f,%.4f,%.4f\n", imu_angles.pitch, imu_angles.roll, imu_angles.yaw);
-	  //snprintf(buffer, sizeof(buffer), "%lu, %lu\n", bmp388_rawData.temperature, bmp388_rawData.pressure);
-	  //HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+//	  snprintf(buffer, sizeof(buffer), "%lu, %lu\n", bmp388_rawData.temperature, bmp388_rawData.pressure);
+//	  snprintf(buffer, sizeof(buffer), "%.4f,%.4f,%.4f\n", imu_angles.pitch, imu_angles.roll, imu_angles.yaw);
+//	  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
 
     /* USER CODE END WHILE */
 
@@ -398,6 +410,25 @@ static void MX_USART2_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Stream0_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+  /* DMA1_Stream1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -427,17 +458,115 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-double get_dt()
-{
-    double current_time = HAL_GetTick() / 1000.0;  // Get time in seconds
-    double dt = current_time - previous_time;
-    previous_time = current_time;  // Update for the next call
-    return dt;
+
+
+/*
+ * Start_MPU9250_DMA_Read
+ *
+ * Prepares and starts a DMA-based SPI transaction to read 14 bytes of sensor data
+ * (accelerometer, temperature, gyroscope) beginning at register 0x3B.
+ */
+void Start_MPU9250_DMA_Read(void) {
+    // First byte: starting register (0x3B) with read flag
+    sensor_tx_buffer[0] = 0x3B | READ_FLAG;
+    // Fill remaining bytes with dummy data
+    for (int i = 1; i < SENSOR_DMA_LENGTH; i++) {
+        sensor_tx_buffer[i] = 0x00;
+    }
+
+    // Assert CS low to begin the SPI transaction
+    HAL_GPIO_WritePin(SPI1_CS_GPIO_Port , SPI1_CS_Pin, GPIO_PIN_RESET);
+
+    // Start the SPI DMA transaction
+    while(HAL_SPI_GetState(&hspi1) != HAL_SPI_STATE_READY);
+	HAL_SPI_TransmitReceive_DMA(&hspi1, sensor_tx_buffer, sensor_rx_buffer, SENSOR_DMA_LENGTH);
 }
+
+/*
+ * HAL_SPI_TxRxCpltCallback
+ *
+ * Called when the DMA-based SPI transaction completes.
+ * Processes the received sensor data, converts raw values to physical units,
+ * updates the Mahony filter, computes Euler angles, and then restarts the DMA read.
+ */
+
+// ABHIRIT AND SAI TRIED IMPLEMENTING THIS BUT IT ONLY RUNS THROUGH HAL_SPI_TxRxCpltCallback() ONCE OR TWICE
+
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi) {
+	if (hspi->Instance == SPI1) {
+		// Deassert CS high to end the SPI transaction
+		HAL_GPIO_WritePin(SPI1_CS_GPIO_Port , SPI1_CS_Pin, GPIO_PIN_SET);
+
+		// Process sensor data.
+		// Data order in sensor_rx_buffer:
+		        // [0-1]: ACCEL_X, [2-3]: ACCEL_Y, [4-5]: ACCEL_Z,
+		        // [6-7]: TEMP (ignored),
+		        // [8-9]: GYRO_X, [10-11]: GYRO_Y, [12-13]: GYRO_Z
+
+		// Accelerometer raw data
+		imu_raw_data.accel_x = ((int16_t)sensor_rx_buffer[0] << 8) | sensor_rx_buffer[1];
+		imu_raw_data.accel_y = ((int16_t)sensor_rx_buffer[2] << 8) | sensor_rx_buffer[3];
+		imu_raw_data.accel_z = ((int16_t)sensor_rx_buffer[4] << 8) | sensor_rx_buffer[5];
+
+		// Gyroscope raw data (skip TEMP at indices 6-7)
+		imu_raw_data.gyro_x  = ((int16_t)sensor_rx_buffer[8]  << 8) | sensor_rx_buffer[9];
+		imu_raw_data.gyro_y  = ((int16_t)sensor_rx_buffer[10] << 8) | sensor_rx_buffer[11];
+		imu_raw_data.gyro_z  = ((int16_t)sensor_rx_buffer[12] << 8) | sensor_rx_buffer[13];
+
+		// Convert accelerometer values:
+		// Assuming ±8g full scale and 4096 LSB/g, multiplied by 9.81 for m/s^2.
+		imu_processed_data.accel_x = ((float)imu_raw_data.accel_x / 4096.0f) * 9.81f;
+		imu_processed_data.accel_y = ((float)imu_raw_data.accel_y / 4096.0f) * 9.81f;
+		imu_processed_data.accel_z = ((float)imu_raw_data.accel_z / 4096.0f) * 9.81f;
+
+		// Convert gyroscope values:
+		// Assuming ±500°/s full scale and 65.5 LSB/(°/s), convert to rad/s after subtracting offsets.
+		imu_processed_data.gyro_x = (((float)imu_raw_data.gyro_x - imu_processed_data.gyro_offX) / 65.5f) * (M_PI / 180.0f);
+		imu_processed_data.gyro_y = (((float)imu_raw_data.gyro_y - imu_processed_data.gyro_offY) / 65.5f) * (M_PI / 180.0f);
+		imu_processed_data.gyro_z = (((float)imu_raw_data.gyro_z - imu_processed_data.gyro_offZ) / 65.5f) * (M_PI / 180.0f);
+
+		// Update the Mahony filter with the processed sensor data.
+		// This updates your quaternion (quat) representing orientation.
+		MahonyAHRSupdateIMU(quat,
+							imu_processed_data.gyro_x,
+							imu_processed_data.gyro_y,
+							imu_processed_data.gyro_z,
+							imu_processed_data.accel_x,
+							imu_processed_data.accel_y,
+							imu_processed_data.accel_z);
+
+		// Convert quaternion to Euler angles (pitch, roll, yaw)
+		float radPitch = asinf(-2.0f * (quat[1] * quat[3] - quat[0] * quat[2]));
+		float radRoll  = atan2f(2.0f * (quat[0] * quat[1] + quat[2] * quat[3]),
+								 2.0f * (quat[0] * quat[0] + quat[3] * quat[3]) - 1.0f);
+		float radYaw   = atan2f(2.0f * (quat[0] * quat[3] + quat[1] * quat[2]),
+								 2.0f * (quat[0] * quat[0] + quat[1] * quat[1]) - 1.0f);
+
+		imu_angles.pitch = radPitch * (180.0f / M_PI);
+		imu_angles.roll  = radRoll  * (180.0f / M_PI);
+		imu_angles.yaw   = radYaw   * (180.0f / M_PI);
+
+		  //send data through UART
+		  snprintf(uart_buffer, sizeof(uart_buffer), "%.4f,%.4f,%.4f\n", imu_angles.pitch, imu_angles.roll, imu_angles.yaw);
+		  HAL_UART_Transmit(&huart2, (uint8_t*)uart_buffer, strlen(uart_buffer), HAL_MAX_DELAY);
+
+		  Start_MPU9250_DMA_Read();
+	}
+	else {
+		// print SPI->Instance if false
+		snprintf(uart_buffer, sizeof(uart_buffer), "oh no spi->instance != SPI1\n");
+		HAL_UART_Transmit(&huart2, (uint8_t*)uart_buffer, strlen(uart_buffer), HAL_MAX_DELAY);
+
+	}
+}
+
+
+
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	if (htim == &htim2)
 	{
+		// NOT BEING USED BY ANYTHING AS OF NOW IN DMA VERSION
 		timer_flag = 1;
 	}
 }

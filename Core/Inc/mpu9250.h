@@ -10,7 +10,6 @@
 
 #include <stdint.h>
 
-
 // Struct for raw IMU data
 typedef struct {
     volatile int16_t accel_x;
@@ -45,18 +44,6 @@ typedef struct {
 	float calibData2;
 	float calibData3;
 } Mag_CalibData_t;
-
-// Struct for Kalman filter outputs
-typedef struct {
-    double angle;          // Estimated angle
-    double bias;           // Bias of the rate sensor
-    double rate;           // Measured rate from the gyroscope
-
-    double P[2][2];        // Error covariance matrix
-    double Q_angle;        // Process noise variance for the angle
-    double Q_bias;         // Process noise variance for the bias
-    double R_measure;      // Measurement noise variance
-} Kalman_t;
 
 // Struct for orientation angles
 typedef struct {

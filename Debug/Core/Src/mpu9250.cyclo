@@ -1,7 +1,6 @@
 ../Core/Src/mpu9250.c:25:6:mpu9250_write_reg	1
 ../Core/Src/mpu9250.c:33:6:mpu9250_read_reg	3
 ../Core/Src/mpu9250.c:46:6:mpu9250_setup	1
-../Core/Src/mpu9250.c:64:6:mpu9250_init_ak8963	1
-../Core/Src/mpu9250.c:114:6:mpu9250_calibrateGyro	3
-../Core/Src/mpu9250.c:145:6:mpu9250_getRawData	1
-../Core/Src/mpu9250.c:160:6:mpu9250_getProcessedAngle	1
+../Core/Src/mpu9250.c:58:6:mpu9250_calibrateGyro	3
+../Core/Src/mpu9250.c:89:6:mpu9250_getRawData	1
+../Core/Src/mpu9250.c:104:6:mpu9250_getProcessedAngle	1
