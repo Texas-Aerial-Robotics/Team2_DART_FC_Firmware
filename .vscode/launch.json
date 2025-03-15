@@ -1,0 +1,27 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug MCU - ST-Link",
+            "cwd": "${workspaceFolder}",
+            "type": "cortex-debug",
+            "request": "launch",
+            "executable": "${command:cmake.launchTargetPath}",
+            "servertype": "stlink",
+            "device": "STM32H755ZITx",
+            "interface": "swd",
+            "runToEntryPoint": "main"
+        },
+        {
+            "name": "Attach to MCU - ST-Link",
+            "cwd": "${workspaceFolder}",
+            "type": "cortex-debug",
+            "request": "attach",
+            "executable": "${command:cmake.launchTargetPath}",
+            "servertype": "stlink",
+            "device": "STM32H755ZITx",
+            "interface": "swd",
+            "runToEntryPoint": "main"
+        }
+    ]
+}
