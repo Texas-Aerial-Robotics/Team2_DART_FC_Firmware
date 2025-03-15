@@ -5,12 +5,14 @@ Authors: Abhirit Das, Ben Park, Lucas Sanabria, Jason Kim
 Progress:
 1) Operate an LED (10.27.2024)
 2) Able to sample IMU data using SPI and transmit data through UART (11.16.2024)
+3) Successful Mahony Filter on IMU data to estimate pitch, roll, and yaw angles
+4) Sucessfully retrieved altitude and temperature data from barometer (will likely need some reevaluation)
 
 Current Goals:
-1) Apply filters for stable angle and altitude values
-2) Design a high-level control system model
-3) Implement PID control in firmware
-4) Evaluate ways to test firmware on a physical DART prototype
+1) Develop modular code to interface with servos and motors
+2) Implement basic altitude PID control in firmware and perform HIL on pivot arm test rig
+3) Design a high-level control system model in Python
+4) Write control system in firmware...
 
 Documentation:
 
