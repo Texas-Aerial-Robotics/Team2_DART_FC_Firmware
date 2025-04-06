@@ -70,6 +70,7 @@ extern float quat[4];
 volatile double previous_time = 0;
 
 volatile uint8_t timer_flag = 0;
+volatile uint8_t dma_flag = 0;
 
 // DMA buffers for sensor transfer
 uint8_t sensor_tx_buffer[SENSOR_DMA_LENGTH];
@@ -90,6 +91,7 @@ static void MX_USART2_UART_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_SPI2_Init(void);
+static void Start_MPU9250_DMA_Read(void);
 /* USER CODE BEGIN PFP */
 /* USER CODE END PFP */
 
@@ -137,7 +139,6 @@ int main(void)
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim2);  // Enable TIM2 interrupt
-  char buffer[40] = {'\0'};
   mpu9250_setup();
   bmp388_setup();
 
@@ -150,9 +151,35 @@ int main(void)
   while (1)
   {
 
-//	  snprintf(buffer, sizeof(buffer), "%lu, %lu\n", bmp388_rawData.temperature, bmp388_rawData.pressure);
-//	  snprintf(buffer, sizeof(buffer), "%.4f,%.4f,%.4f\n", imu_angles.pitch, imu_angles.roll, imu_angles.yaw);
-//	  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+	  if(timer_flag && dma_flag) {
+			  // Update the Mahony filter with the processed sensor data.
+			// This updates your quaternion (quat) representing orientation.
+			MahonyAHRSupdateIMU(quat,
+								imu_processed_data.gyro_x,
+								imu_processed_data.gyro_y,
+								imu_processed_data.gyro_z,
+								imu_processed_data.accel_x,
+								imu_processed_data.accel_y,
+								imu_processed_data.accel_z);
+
+			// Convert quaternion to Euler angles (pitch, roll, yaw)
+			float radPitch = asinf(-2.0f * (quat[1] * quat[3] - quat[0] * quat[2]));
+			float radRoll  = atan2f(2.0f * (quat[0] * quat[1] + quat[2] * quat[3]),
+									 2.0f * (quat[0] * quat[0] + quat[3] * quat[3]) - 1.0f);
+			float radYaw   = atan2f(2.0f * (quat[0] * quat[3] + quat[1] * quat[2]),
+									 2.0f * (quat[0] * quat[0] + quat[1] * quat[1]) - 1.0f);
+
+			imu_angles.pitch = radPitch * (180.0f / M_PI);
+			imu_angles.roll  = radRoll  * (180.0f / M_PI);
+			imu_angles.yaw   = radYaw   * (180.0f / M_PI);
+
+		  //send data through UART
+		  snprintf(uart_buffer, sizeof(uart_buffer), "%.4f,%.4f,%.4f\n", imu_angles.pitch, imu_angles.roll, imu_angles.yaw);
+		  HAL_UART_Transmit(&huart2, (uint8_t*)uart_buffer, strlen(uart_buffer), HAL_MAX_DELAY);
+
+		  timer_flag = 0;
+		  dma_flag = 0;
+	  }
 
     /* USER CODE END WHILE */
 
@@ -466,7 +493,7 @@ static void MX_GPIO_Init(void)
  * Prepares and starts a DMA-based SPI transaction to read 14 bytes of sensor data
  * (accelerometer, temperature, gyroscope) beginning at register 0x3B.
  */
-void Start_MPU9250_DMA_Read(void) {
+static void Start_MPU9250_DMA_Read(void) {
     // First byte: starting register (0x3B) with read flag
     sensor_tx_buffer[0] = 0x3B | READ_FLAG;
     // Fill remaining bytes with dummy data
@@ -479,6 +506,7 @@ void Start_MPU9250_DMA_Read(void) {
 
     // Start the SPI DMA transaction
     while(HAL_SPI_GetState(&hspi1) != HAL_SPI_STATE_READY);
+
 	HAL_SPI_TransmitReceive_DMA(&hspi1, sensor_tx_buffer, sensor_rx_buffer, SENSOR_DMA_LENGTH);
 }
 
@@ -525,31 +553,7 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi) {
 		imu_processed_data.gyro_y = (((float)imu_raw_data.gyro_y - imu_processed_data.gyro_offY) / 65.5f) * (M_PI / 180.0f);
 		imu_processed_data.gyro_z = (((float)imu_raw_data.gyro_z - imu_processed_data.gyro_offZ) / 65.5f) * (M_PI / 180.0f);
 
-		// Update the Mahony filter with the processed sensor data.
-		// This updates your quaternion (quat) representing orientation.
-		MahonyAHRSupdateIMU(quat,
-							imu_processed_data.gyro_x,
-							imu_processed_data.gyro_y,
-							imu_processed_data.gyro_z,
-							imu_processed_data.accel_x,
-							imu_processed_data.accel_y,
-							imu_processed_data.accel_z);
-
-		// Convert quaternion to Euler angles (pitch, roll, yaw)
-		float radPitch = asinf(-2.0f * (quat[1] * quat[3] - quat[0] * quat[2]));
-		float radRoll  = atan2f(2.0f * (quat[0] * quat[1] + quat[2] * quat[3]),
-								 2.0f * (quat[0] * quat[0] + quat[3] * quat[3]) - 1.0f);
-		float radYaw   = atan2f(2.0f * (quat[0] * quat[3] + quat[1] * quat[2]),
-								 2.0f * (quat[0] * quat[0] + quat[1] * quat[1]) - 1.0f);
-
-		imu_angles.pitch = radPitch * (180.0f / M_PI);
-		imu_angles.roll  = radRoll  * (180.0f / M_PI);
-		imu_angles.yaw   = radYaw   * (180.0f / M_PI);
-
-		  //send data through UART
-		  snprintf(uart_buffer, sizeof(uart_buffer), "%.4f,%.4f,%.4f\n", imu_angles.pitch, imu_angles.roll, imu_angles.yaw);
-		  HAL_UART_Transmit(&huart2, (uint8_t*)uart_buffer, strlen(uart_buffer), HAL_MAX_DELAY);
-
+		dma_flag = 1;
 		  Start_MPU9250_DMA_Read();
 	}
 	else {
