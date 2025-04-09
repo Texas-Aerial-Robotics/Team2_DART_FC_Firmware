@@ -35,6 +35,11 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+// Define DShot parameters
+#define DSHOT_PACKET_SIZE    16       // 16 bits per packet
+#define DSHOT_BUFFER_SIZE    (DSHOT_PACKET_SIZE + 1)  // 16 bits plus one pause frame
+#define DSHOT_TIMER_ARR      140      // Timer ARR value for the chosen DShot speed (e.g., DShot600)
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -61,6 +66,10 @@ extern BMP388_RawData_t bmp388_rawData;
 volatile double previous_time = 0;
 
 volatile uint8_t timer_flag = 0;
+
+// DMA buffers for both motors
+uint16_t dshotBufferMotor1[DSHOT_BUFFER_SIZE];
+uint16_t dshotBufferMotor2[DSHOT_BUFFER_SIZE];
 
 /* USER CODE END PV */
 
@@ -122,6 +131,21 @@ int main(void)
   char buffer[40] = {'\0'};
   mpu9250_setup();
   bmp388_setup();
+
+  // Example throttle value for both motors (range 0-2047)
+  uint16_t throttle_value = 1024;  // Adjust as needed
+
+  // Build the DShot packet for the given throttle and telemetry (0 = no telemetry)
+  uint16_t dshotPacket = build_dshot_packet(throttle_value, 0);
+
+  // Prepare both DMA buffers with the same packet. One motor will get an inverted PWM due to timer config.
+  prepare_dshot_buffer(dshotPacket, dshotBufferMotor1);
+  prepare_dshot_buffer(dshotPacket, dshotBufferMotor2);
+
+  // Start the DMA-based PWM transmissions for both motors
+  send_dshot_motor1();
+  send_dshot_motor2();
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -140,7 +164,8 @@ int main(void)
 	  //send data through UART
 	  snprintf(buffer, sizeof(buffer), "%.4f,%.4f,%.4f\n", imu_angles.pitch, imu_angles.roll, imu_angles.yaw);
 	  //snprintf(buffer, sizeof(buffer), "%lu, %lu\n", bmp388_rawData.temperature, bmp388_rawData.pressure);
-	  //HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+	  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+	  HAL_Delay(5);
 
     /* USER CODE END WHILE */
 
@@ -427,6 +452,51 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+// Build a DShot packet given throttle (11 bits) and telemetry flag
+uint16_t build_dshot_packet(uint16_t throttle, uint8_t telemetry) {
+    throttle &= 0x07FF;  // keep only 11 bits
+    uint16_t packet = (throttle << 1) | (telemetry & 0x01);
+
+    // Calculate 4-bit CRC
+    uint16_t csum = 0;
+    uint16_t csum_data = packet;
+    for (int i = 0; i < 3; i++) {
+        csum ^= csum_data;
+        csum_data >>= 4;
+    }
+    csum &= 0xF;
+    packet = (packet << 4) | csum;
+    return packet;
+}
+
+// Convert the 16-bit packet into a PWM duty-cycle buffer.
+// Use 75% duty cycle for a logical '1' and 37.5% for a logical '0'.
+void prepare_dshot_buffer(uint16_t packet, uint16_t* buffer) {
+    for (int i = 0; i < DSHOT_PACKET_SIZE; i++) {
+        if (packet & (1 << (15 - i))) {
+            buffer[i] = (DSHOT_TIMER_ARR * 3) / 4;  // '1' bit (75%)
+        } else {
+            buffer[i] = (DSHOT_TIMER_ARR * 3) / 8;  // '0' bit (37.5%)
+        }
+    }
+    // The extra element is a pause (set to 0)
+    buffer[DSHOT_PACKET_SIZE] = 0;
+}
+
+// Function to start the DMA transmission for motor 1 (normal polarity)
+void send_dshot_motor1(void) {
+    // htimX and TIM_CHANNEL_x are configured for motor 1 in CubeMX
+    HAL_TIM_PWM_Start_DMA(&htimX, TIM_CHANNEL_x, (uint32_t*)dshotBufferMotor1, DSHOT_BUFFER_SIZE);
+}
+
+// Function to start the DMA transmission for motor 2 (inverted polarity)
+// Motor 2's timer channel should be configured with inverted output (or you can invert the buffer in software).
+void send_dshot_motor2(void) {
+    // htimY and TIM_CHANNEL_y are configured for motor 2; ensure the polarity is inverted.
+    HAL_TIM_PWM_Start_DMA(&htimY, TIM_CHANNEL_y, (uint32_t*)dshotBufferMotor2, DSHOT_BUFFER_SIZE);
+}
+
 double get_dt()
 {
     double current_time = HAL_GetTick() / 1000.0;  // Get time in seconds
