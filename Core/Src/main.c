@@ -38,7 +38,7 @@
 // Define DShot parameters
 #define DSHOT_PACKET_SIZE    16       // 16 bits per packet
 #define DSHOT_BUFFER_SIZE    (DSHOT_PACKET_SIZE + 1)  // 16 bits plus one pause frame
-#define DSHOT_TIMER_ARR      140      // Timer ARR value for the chosen DShot speed (e.g., DShot600)
+#define DSHOT_TIMER_ARR      199      // Timer ARR value for the chosen DShot speed (e.g., DShot1200)
 
 /* USER CODE END PD */
 
@@ -53,6 +53,8 @@ SPI_HandleTypeDef hspi1;
 SPI_HandleTypeDef hspi2;
 
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim3;
+DMA_HandleTypeDef hdma_tim3_ch1;
 
 UART_HandleTypeDef huart2;
 
@@ -68,8 +70,7 @@ volatile double previous_time = 0;
 volatile uint8_t timer_flag = 0;
 
 // DMA buffers for both motors
-uint16_t dshotBufferMotor1[DSHOT_BUFFER_SIZE];
-uint16_t dshotBufferMotor2[DSHOT_BUFFER_SIZE];
+uint16_t dshotBufferMotor[DSHOT_BUFFER_SIZE];
 
 /* USER CODE END PV */
 
@@ -77,12 +78,17 @@ uint16_t dshotBufferMotor2[DSHOT_BUFFER_SIZE];
 void SystemClock_Config(void);
 static void MPU_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_SPI2_Init(void);
+static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
-double get_dt();
+uint16_t build_dshot_packet(uint16_t throttle, uint8_t telemetry);
+void prepare_dshot_buffer(uint16_t packet, uint16_t* buffer);
+void send_dshot_motor(void);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -122,10 +128,12 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_SPI1_Init();
   MX_TIM2_Init();
   MX_SPI2_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim2);  // Enable TIM2 interrupt
   char buffer[40] = {'\0'};
@@ -133,18 +141,16 @@ int main(void)
   bmp388_setup();
 
   // Example throttle value for both motors (range 0-2047)
-  uint16_t throttle_value = 1024;  // Adjust as needed
+  uint16_t throttle_value = 500;  // Adjust as needed
 
   // Build the DShot packet for the given throttle and telemetry (0 = no telemetry)
   uint16_t dshotPacket = build_dshot_packet(throttle_value, 0);
 
   // Prepare both DMA buffers with the same packet. One motor will get an inverted PWM due to timer config.
-  prepare_dshot_buffer(dshotPacket, dshotBufferMotor1);
-  prepare_dshot_buffer(dshotPacket, dshotBufferMotor2);
+  prepare_dshot_buffer(dshotPacket, dshotBufferMotor);
 
   // Start the DMA-based PWM transmissions for both motors
-  send_dshot_motor1();
-  send_dshot_motor2();
+  send_dshot_motor();
 
   /* USER CODE END 2 */
 
@@ -161,11 +167,8 @@ int main(void)
 		  bmp388_getData();
 	  }
 
-	  //send data through UART
-	  snprintf(buffer, sizeof(buffer), "%.4f,%.4f,%.4f\n", imu_angles.pitch, imu_angles.roll, imu_angles.yaw);
 	  //snprintf(buffer, sizeof(buffer), "%lu, %lu\n", bmp388_rawData.temperature, bmp388_rawData.pressure);
-	  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
-	  HAL_Delay(5);
+	  // HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
 
     /* USER CODE END WHILE */
 
@@ -375,6 +378,65 @@ static void MX_TIM2_Init(void)
 }
 
 /**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 0;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 99;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
+  HAL_TIM_MspPostInit(&htim3);
+
+}
+
+/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -423,6 +485,22 @@ static void MX_USART2_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Stream0_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -436,6 +514,7 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, SPI1_CS_Pin|SPI2_CS_Pin, GPIO_PIN_RESET);
@@ -485,25 +564,11 @@ void prepare_dshot_buffer(uint16_t packet, uint16_t* buffer) {
 }
 
 // Function to start the DMA transmission for motor 1 (normal polarity)
-void send_dshot_motor1(void) {
+void send_dshot_motor(void) {
     // htimX and TIM_CHANNEL_x are configured for motor 1 in CubeMX
-    HAL_TIM_PWM_Start_DMA(&htimX, TIM_CHANNEL_x, (uint32_t*)dshotBufferMotor1, DSHOT_BUFFER_SIZE);
+    HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_1, (uint32_t*)dshotBufferMotor, DSHOT_BUFFER_SIZE);
 }
 
-// Function to start the DMA transmission for motor 2 (inverted polarity)
-// Motor 2's timer channel should be configured with inverted output (or you can invert the buffer in software).
-void send_dshot_motor2(void) {
-    // htimY and TIM_CHANNEL_y are configured for motor 2; ensure the polarity is inverted.
-    HAL_TIM_PWM_Start_DMA(&htimY, TIM_CHANNEL_y, (uint32_t*)dshotBufferMotor2, DSHOT_BUFFER_SIZE);
-}
-
-double get_dt()
-{
-    double current_time = HAL_GetTick() / 1000.0;  // Get time in seconds
-    double dt = current_time - previous_time;
-    previous_time = current_time;  // Update for the next call
-    return dt;
-}
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	if (htim == &htim2)
