@@ -1,0 +1,27 @@
+# === STM32CubeIDE project (hptx_firmware) ===
+Debug/
+Release/
+*.bin
+*.elf
+*.hex
+*.map
+*.lst
+*.o
+*.d
+*.log
+*~
+*.bak
+
+# STM32CubeIDE metadata
+.settings/
+.metadata/
+*.launch
+.loadpath
+.externalToolBuilders/
+*.db
+
+# Remove Anything related to the build process from updating the repo
+Build/
+
+# Prevent Vscode from being tracked
+.vscode/

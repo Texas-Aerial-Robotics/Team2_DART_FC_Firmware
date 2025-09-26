@@ -139,8 +139,7 @@ int main(void)
 
 	  //send data through UART
 	  snprintf(buffer, sizeof(buffer), "%.4f,%.4f,%.4f\n", imu_angles.pitch, imu_angles.roll, imu_angles.yaw);
-	  //snprintf(buffer, sizeof(buffer), "%lu, %lu\n", bmp388_rawData.temperature, bmp388_rawData.pressure);
-	  //HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+	  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
 
     /* USER CODE END WHILE */
 
