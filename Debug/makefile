@@ -1,6 +1,6 @@
 ################################################################################
 # Automatically-generated file. Do not edit!
-# Toolchain: GNU Tools for STM32 (12.3.rel1)
+# Toolchain: GNU Tools for STM32 (13.3.rel1)
 ################################################################################
 
 -include ../makefile.init
@@ -52,6 +52,12 @@ default.size.stdout \
 OBJDUMP_LIST += \
 Team2_DART_Firmware.list \
 
+OBJCOPY_HEX += \
+Team2_DART_Firmware.hex \
+
+OBJCOPY_BIN += \
+Team2_DART_Firmware.bin \
+
 
 # All Target
 all: main-build
@@ -60,8 +66,8 @@ all: main-build
 main-build: Team2_DART_Firmware.elf secondary-outputs
 
 # Tool invocations
-Team2_DART_Firmware.elf Team2_DART_Firmware.map: $(OBJS) $(USER_OBJS) C:\Users\benpa\STM32CubeIDE\workspace_1.16.0\DART_cloned\Team2_DART_FC_Firmware\STM32H743VITX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "Team2_DART_Firmware.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"C:\Users\benpa\STM32CubeIDE\workspace_1.16.0\DART_cloned\Team2_DART_FC_Firmware\STM32H743VITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Team2_DART_Firmware.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -u _printf_float -u _scanf_float -Wl,--start-group -lc -lm -Wl,--end-group
+Team2_DART_Firmware.elf Team2_DART_Firmware.map: $(OBJS) $(USER_OBJS) /Users/rachitkakkar/Documents/TAR/Team2_DART_FC_Firmware/STM32H743VITX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "Team2_DART_Firmware.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m7 -T"/Users/rachitkakkar/Documents/TAR/Team2_DART_FC_Firmware/STM32H743VITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Team2_DART_Firmware.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-d16 -mfloat-abi=hard -mthumb -u _printf_float -u _scanf_float -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
@@ -75,12 +81,22 @@ Team2_DART_Firmware.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_D
 	@echo 'Finished building: $@'
 	@echo ' '
 
+Team2_DART_Firmware.hex: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-objcopy  -O ihex $(EXECUTABLES) "Team2_DART_Firmware.hex"
+	@echo 'Finished building: $@'
+	@echo ' '
+
+Team2_DART_Firmware.bin: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-objcopy  -O binary $(EXECUTABLES) "Team2_DART_Firmware.bin"
+	@echo 'Finished building: $@'
+	@echo ' '
+
 # Other Targets
 clean:
-	-$(RM) Team2_DART_Firmware.elf Team2_DART_Firmware.list Team2_DART_Firmware.map default.size.stdout
+	-$(RM) Team2_DART_Firmware.bin Team2_DART_Firmware.elf Team2_DART_Firmware.hex Team2_DART_Firmware.list Team2_DART_Firmware.map default.size.stdout
 	-@echo ' '
 
-secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST)
+secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST) $(OBJCOPY_HEX) $(OBJCOPY_BIN)
 
 fail-specified-linker-script-missing:
 	@echo 'Error: Cannot find the specified linker script. Check the linker settings in the build configuration.'

@@ -535,13 +535,16 @@ double get_dt()
 }
 
 uint16_t setDutyCH1(TIM_HandleTypeDef *htim, float angle) {
-    //limit range from -90 to 90 degrees
+    // Limit range from -90 to 90 degrees
     if (angle < -90.0f) angle = -90.0f;
     if (angle > 90.0f) angle = 90.0f;
 
-    // Scale angle to pulse time in microseconds (1000 µs to 2000 µs)(total period is 20000 µs)
-    //confirm math w jason
-    float pulseTime = 1500.0f + (angle * 500.0f) / 90.0f;
+    // Convert angle to a range between 0-180 degrees (just for testing purposes)
+    float transformed_angle = angle + 90.0f;
+
+    // Calculate the PWM pulse width in microseconds (1000 µs to 2000 µs; total period is 20000 µs)
+    // Assume minimum pulse is 0.6ms and the maximum pulse is 2.4ms
+    float pulseTime = (transformed_angle * 1800.0f) / 180.0f + 600.0f;
 
     // Convert pulse width in µs to CCR value
     uint16_t ccrValue = (uint16_t)(pulseTime);
@@ -551,13 +554,16 @@ uint16_t setDutyCH1(TIM_HandleTypeDef *htim, float angle) {
 }
 
 uint16_t setDutyCH2(TIM_HandleTypeDef *htim, float angle) {
-    //limit range from -90 to 90 degrees
+    // Limit range from -90 to 90 degrees
     if (angle < -90.0f) angle = -90.0f;
     if (angle > 90.0f) angle = 90.0f;
 
-    // Scale angle to pulse time in microseconds (1000 µs to 2000 µs)(total period is 20000 µs)
-    //confirm math w jason
-    float pulseTime = 1500.0f + (angle * 500.0f) / 90.0f;
+    // Convert angle to a range between 0-180 degrees
+    float transformed_angle = angle + 90.0f;
+
+    // Calculate the PWM pulse width in microseconds (1000 µs to 2000 µs; total period is 20000 µs)
+    // Assume minimum pulse is 0.6ms and the maximum pulse is 2.4ms
+    float pulseTime = (transformed_angle * 1800.0f) / 180.0f + 600.0f;
 
     // Convert pulse width in µs to CCR value
     uint16_t ccrValue = (uint16_t)(pulseTime);
