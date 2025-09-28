@@ -115,11 +115,12 @@ typedef struct {
 } IMU_Angles_t;
 
 
-void mpu9250_setup();
+void mpu9250_setup(void);
+void mpu9250_init_ak8963(void);
 void mpu9250_write_reg(uint8_t reg, uint8_t data);
 void mpu9250_read_reg(uint8_t reg, uint8_t *data, uint8_t len);
 
-void mpu9250_calibrateGyro(uint16_t numCalPoints);
+void mpu9250_calibrateIMU(uint16_t numCalPoints);
 
 //update raw measurements from IMU
 void mpu9250_getRawData();

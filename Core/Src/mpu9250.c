@@ -123,6 +123,7 @@ void mpu9250_calibrateIMU(uint16_t numCalPoints)
     int32_t y = 0;
     int32_t z = 0;
 
+    int32_t mag_x, mag_y, mag_z;
 	int32_t max_x = INT32_MAX,min_x = INT32_MIN;
 	int32_t max_y = INT32_MAX, min_y = INT32_MIN;
 	int32_t max_z = INT32_MAX, min_z = INT32_MIN;
@@ -141,13 +142,17 @@ void mpu9250_calibrateIMU(uint16_t numCalPoints)
         y += imu_raw_data.gyro_y;
         z += imu_raw_data.gyro_z;
 
+        mag_x = imu_raw_data.mag_x;
+        mag_y = imu_raw_data.mag_y;
+        mag_z = imu_raw_data.mag_z;
+
         // Used for magnetometer hard-iron/soft-iron scaling
-        if (mag_x > max_x) max_x = imu_raw_data.mag_x;
-		if (mag_x < min_x) min_x = imu_raw_data.mag_x;
-		if (mag_y > max_y) max_y = imu_raw_data.mag_y;
-		if (mag_y < min_y) min_y = imu_raw_data.mag_y;
-		if (mag_z > max_z) max_z = imu_raw_data.mag_z;
-		if (mag_z < min_z) min_z = imu_raw_data.mag_z;
+        if (mag_x > max_x) max_x = mag_x;
+		if (mag_x < min_x) min_x = mag_x;
+		if (mag_y > max_y) max_y = mag_y;
+		if (mag_y < min_y) min_y = mag_y;
+		if (mag_z > max_z) max_z = mag_z;
+		if (mag_z < min_z) min_z = mag_z;
         HAL_Delay(3);
     }
 
@@ -167,9 +172,9 @@ void mpu9250_calibrateIMU(uint16_t numCalPoints)
 
 		float r_max = fmaxf(fmaxf(half_x, half_y), half_z);
 
-		calib.scale_x = r_max / half_x;
-		calib.scale_y = r_max / half_y;
-		calib.scale_z = r_max / half_z;
+		imu_processed_data.mag_scaleX = r_max / half_x;
+		imu_processed_data.mag_scaleY = r_max / half_y;
+		imu_processed_data.mag_scaleZ = r_max / half_z;
     } else {
     	imu_processed_data.mag_scaleX = 1.0f;
 		imu_processed_data.mag_scaleY = 1.0f;
