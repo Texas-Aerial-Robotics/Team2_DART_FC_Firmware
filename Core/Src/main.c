@@ -77,8 +77,9 @@ static void MX_SPI2_Init(void);
 static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 double get_dt();
-uint16_t setDutyCH1(TIM_HandleTypeDef *htim, float angle);
-uint16_t setDutyCH2(TIM_HandleTypeDef *htim, float angle);
+void Servo_Set_Angle(TIM_HandleTypeDef *htim, uint32_t PWMchannel, float angle);
+void Servo_Sweep(TIM_HandleTypeDef *htim, uint32_t PWMchannel, float from, float to, uint8_t delay_ms);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -124,10 +125,12 @@ int main(void)
   MX_SPI2_Init();
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
+  HAL_TIM_Base_Start_IT(&htim1);  // Enable TIM1 interrupt
   HAL_TIM_Base_Start_IT(&htim2);  // Enable TIM2 interrupt
-  HAL_TIM_Base_Start_IT(&htim1);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1); // Enable TIM1 Channel 1 interrupt
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2); // Enable TIM1 Channel 1 interrupt
+
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1); // Enable TIM1 Channel 1 interrupt (for IMU pitch)
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2); // Enable TIM1 Channel 2 interrupt (for IMU roll)
+
   char buffer[40] = {'\0'};
   mpu9250_setup();
   bmp388_setup();
@@ -138,7 +141,7 @@ int main(void)
   while (1)
   {
 	  //process IMU data on timer interrupt
-	  if(timer_flag)
+	  if (timer_flag)
 	  {
 		  timer_flag = 0;	//reset timer flag
 
@@ -146,12 +149,10 @@ int main(void)
 		  bmp388_getData();
 	  }
 
-	  if(update_ccr){
+	  if (update_ccr){
 		  update_ccr = 0; //reset update ccr flag
-
-		  duty1=setDutyCH1(&htim1, imu_angles.pitch);
-		  duty2=setDutyCH2(&htim1, imu_angles.roll);
-
+      Servo_Set_Angle(&htim1, TIM_CHANNEL_1, 90.0); // imu_angles.pitch
+      Servo_Set_Angle(&htim1, TIM_CHANNEL_2, 90.0); // imu_angles.roll
 	  }
 
 
@@ -338,7 +339,7 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 120-1;
+  htim1.Init.Prescaler = 240-1;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim1.Init.Period = 20000-1;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -534,42 +535,31 @@ double get_dt()
     return dt;
 }
 
-uint16_t setDutyCH1(TIM_HandleTypeDef *htim, float angle) {
-    // Limit range from -90 to 90 degrees
-    if (angle < -90.0f) angle = -90.0f;
-    if (angle > 90.0f) angle = 90.0f;
-
-    // Convert angle to a range between 0-180 degrees (just for testing purposes)
-    float transformed_angle = angle + 90.0f;
+void Servo_Set_Angle(TIM_HandleTypeDef *htim, uint32_t PWMchannel, float angle)
+{
+    // Limit range from 0 to 180 degrees
+    if (angle < 0.0f) angle = 0.0f;
+    if (angle > 180.0f) angle = 180.0f;
 
     // Calculate the PWM pulse width in microseconds (1000 µs to 2000 µs; total period is 20000 µs)
     // Assume minimum pulse is 0.6ms and the maximum pulse is 2.4ms
-    float pulseTime = (transformed_angle * 1800.0f) / 180.0f + 600.0f;
-
-    // Convert pulse width in µs to CCR value
-    uint16_t ccrValue = (uint16_t)(pulseTime);
-
-    htim->Instance->CCR1 = ccrValue;
-    return ccrValue;
+    uint16_t pulse_width = (((uint8_t) angle * 1800) / 180) + 600;
+    __HAL_TIM_SET_COMPARE(htim, PWMchannel, pulse_width);
 }
 
-uint16_t setDutyCH2(TIM_HandleTypeDef *htim, float angle) {
-    // Limit range from -90 to 90 degrees
-    if (angle < -90.0f) angle = -90.0f;
-    if (angle > 90.0f) angle = 90.0f;
-
-    // Convert angle to a range between 0-180 degrees
-    float transformed_angle = angle + 90.0f;
-
-    // Calculate the PWM pulse width in microseconds (1000 µs to 2000 µs; total period is 20000 µs)
-    // Assume minimum pulse is 0.6ms and the maximum pulse is 2.4ms
-    float pulseTime = (transformed_angle * 1800.0f) / 180.0f + 600.0f;
-
-    // Convert pulse width in µs to CCR value
-    uint16_t ccrValue = (uint16_t)(pulseTime);
-
-    htim->Instance->CCR2 = ccrValue;
-    return ccrValue;
+void Servo_Sweep(TIM_HandleTypeDef *htim, uint32_t PWMchannel, float from, float to, uint8_t delay_ms)
+{
+    if (from > to) {
+        for (float i = from; i >= to; i--) {
+            Servo_Set_Angle(htim, PWMchannel, i);
+            HAL_Delay(delay_ms);
+        }
+    } else {
+        for (float i = from; i <= to; i++) {
+            Servo_Set_Angle(htim, PWMchannel, i);
+            HAL_Delay(delay_ms);
+        }
+    }
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
