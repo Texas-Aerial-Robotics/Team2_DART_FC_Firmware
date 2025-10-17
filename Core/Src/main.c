@@ -29,12 +29,18 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef struct {
+    uint16_t distance_cm;
+    uint16_t strength;
+    uint8_t quality;
+    uint8_t valid;
+} TFmini_Data_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define TFMINI_FRAME_SIZE 9
+#define TFMINI_HEADER     0x59
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -49,11 +55,13 @@ SPI_HandleTypeDef hspi2;
 
 TIM_HandleTypeDef htim2;
 
+UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 extern IMU_ProcessedData_t imu_processed_data;
 extern IMU_Angles_t imu_angles;
+uint8_t tfmini_rx_buf[TFMINI_FRAME_SIZE];
 extern Kalman_t KalmanPitch;
 extern Kalman_t KalmanRoll;
 extern BMP388_ProcessedData_t bmp388_processedData;
@@ -72,12 +80,51 @@ static void MX_USART2_UART_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_SPI2_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
+TFmini_Data_t TFmini_ReadFrame(void);
 double get_dt();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+TFmini_Data_t TFmini_ReadFrame(void) {
+  TFmini_Data_t result = {0};
+
+  HAL_StatusTypeDef status;
+
+  // Read one frame (blocking, look into non-polling approach with HAL_UART_RECEIVE_IT)
+  status = HAL_UART_Receive(&huart1, tfmini_rx_buf, TFMINI_FRAME_SIZE, 100);
+  if (status != HAL_OK) {
+    result.valid = 0;
+    return result;
+  }
+
+  // Validate header
+  if (!(tfmini_rx_buf[0] == TFMINI_HEADER && tfmini_rx_buf[1] == TFMINI_HEADER)) {
+    result.valid = 0;
+    return result;
+  }
+
+  // Verify checksum
+  uint8_t checksum = 0;
+  for (int i = 0; i < 8; i++) {
+    checksum += tfmini_rx_buf[i];
+  }
+
+  if (checksum != tfmini_rx_buf[8]) {
+    result.valid = 0;
+    return result;
+  }
+
+  // Parse data
+  result.distance_cm = tfmini_rx_buf[2] | (tfmini_rx_buf[3] << 8);
+  result.strength    = tfmini_rx_buf[4] | (tfmini_rx_buf[5] << 8);
+  result.quality     = tfmini_rx_buf[7];
+  result.valid       = 1;
+
+  return result;
+}
 
 /* USER CODE END 0 */
 
@@ -117,6 +164,7 @@ int main(void)
   MX_SPI1_Init();
   MX_TIM2_Init();
   MX_SPI2_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_Base_Start_IT(&htim2);  // Enable TIM2 interrupt
   char buffer[40] = {'\0'};
@@ -137,9 +185,23 @@ int main(void)
 		  bmp388_getData();
 	  }
 
-	  //send data through UART
-	  snprintf(buffer, sizeof(buffer), "%.4f,%.4f,%.4f\n", imu_angles.pitch, imu_angles.roll, imu_angles.yaw);
-	  HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+	  // //send data through UART
+    // snprintf(buffer, sizeof(buffer), "%.4f,%.4f,%.4f\n", imu_angles.pitch, imu_angles.roll, imu_angles.yaw);
+    // HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+
+    TFmini_Data_t data = TFmini_ReadFrame();
+    if (data.valid) {
+      // printf("Distance: %d cm, Strength: %d, Quality: %d\r\n", data.distance_cm, data.strength, data.quality);
+      snprintf(buffer, sizeof(buffer), "%.4f,%.4f,%.4f\n", data.distance_cm, data.strength, data.quality);
+	    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+    } else {
+      // printf("Invalid frame or checksum error\r\n");
+      snprintf(buffer, sizeof(buffer), "%.4f,%.4f,%.4f\n", data.distance_cm, data.strength, data.quality);
+	    HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+    }
+
+    HAL_Delay(100); // Adjust according to desired sample rate
+
 
     /* USER CODE END WHILE */
 
@@ -345,6 +407,54 @@ static void MX_TIM2_Init(void)
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart1.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart1, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart1, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_DisableFifoMode(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
 
 }
 
