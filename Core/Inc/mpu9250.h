@@ -8,6 +8,49 @@
 #ifndef INC_MPU9250_H_
 #define INC_MPU9250_H_
 
+// MPU-9250 register map
+#define MPU9250_CONFIG 0x1A
+#define MPU9250_ACCEL_CONFIG 0x1C
+#define MPU9250_GYRO_CONFIG 0x1B
+
+#define MPU9250_USER_CTRL 0x6A
+#define MPU9250_I2C_MST_CTRL 0x24
+#define MPU9250_I2C_SLV0_ADDR   0x25
+#define MPU9250_I2C_SLV0_REG    0x26
+
+#define MPU9250_ACCEL_XOUT_H 0x3B
+#define MPU9250_GYRO_XOUT_H 0x43
+#define MPU9250_EXT_SENS_DATA_00 0x49
+
+#define MPU9250_I2C_SLV0_CTRL   0x27
+#define MPU9250_I2C_SLV0_DO     0x63
+
+// AK8963 (magnetometer) register map
+#define AK8963_I2C_ADDR         0x0C   // 7-bit address
+#define AK8963_WHO_AM_I         0x00
+#define AK8963_INFO             0x01
+#define AK8963_ST1              0x02
+#define AK8963_HXL              0x03
+#define AK8963_HXH              0x04
+#define AK8963_HYL              0x05
+#define AK8963_HYH              0x06
+#define AK8963_HZL              0x07
+#define AK8963_HZH              0x08
+#define AK8963_ST2              0x09
+#define AK8963_CNTL1            0x0A
+#define AK8963_CNTL2            0x0B
+#define AK8963_ASAX             0x10   // X-axis sensitivity adjustment
+#define AK8963_ASAY             0x11
+#define AK8963_ASAZ             0x12
+
+// AK8963 control values
+#define AK8963_POWER_DOWN       0x00
+#define AK8963_FUSE_ROM_ACCESS  0x0F
+#define AK8963_CNTL2_RESET      0x01
+#define AK8963_CONTINUOUS_100HZ (0x06) // Continuous measurement mode 2 (100 Hz), 16-bit output
+
+#define APPLY_SOFT_IRON_SCALING 1
+
 #include <stdint.h>
 
 
@@ -38,6 +81,12 @@ typedef struct {
     volatile float mag_x;
     volatile float mag_y;
     volatile float mag_z;
+    float mag_offX;
+    float mag_offY;
+    float mag_offZ;
+    float mag_scaleX;
+    float mag_scaleY;
+    float mag_scaleZ;
 } IMU_ProcessedData_t;
 
 typedef struct {
@@ -66,11 +115,12 @@ typedef struct {
 } IMU_Angles_t;
 
 
-void mpu9250_setup();
+void mpu9250_setup(void);
+void mpu9250_init_ak8963(void);
 void mpu9250_write_reg(uint8_t reg, uint8_t data);
 void mpu9250_read_reg(uint8_t reg, uint8_t *data, uint8_t len);
 
-void mpu9250_calibrateGyro(uint16_t numCalPoints);
+void mpu9250_calibrateIMU(uint16_t numCalPoints);
 
 //update raw measurements from IMU
 void mpu9250_getRawData();
