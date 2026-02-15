@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 #include "mpu9250.h"
 #include "bmp388.h"
 /* USER CODE END Includes */
@@ -70,7 +71,7 @@ volatile double previous_time = 0;
 volatile uint8_t timer_flag = 0;
 
 // DMA buffers for both motors
-uint16_t dshotBufferMotor[DSHOT_BUFFER_SIZE];
+uint32_t dshotBufferMotor[DSHOT_BUFFER_SIZE];
 
 /* USER CODE END PV */
 
@@ -88,6 +89,12 @@ static void MX_TIM3_Init(void);
 uint16_t build_dshot_packet(uint16_t throttle, uint8_t telemetry);
 void prepare_dshot_buffer(uint16_t packet, uint16_t* buffer);
 void send_dshot_motor(void);
+
+uint16_t dshot_prepare_packet(uint16_t value);
+void dshot_prepare_dmabuffer(uint32_t* motor_dmabuffer, uint16_t value);
+
+void dshot_set_timer();
+
 
 /* USER CODE END PFP */
 
@@ -140,14 +147,28 @@ int main(void)
   mpu9250_setup();
   bmp388_setup();
 
-  // Example throttle value for both motors (range 0-2047)
-  uint16_t throttle_value = 500;  // Adjust as needed
+  dshot_set_timer();
 
   // Build the DShot packet for the given throttle and telemetry (0 = no telemetry)
-  uint16_t dshotPacket = build_dshot_packet(throttle_value, 0);
+  uint16_t dshotPacket = dshot_prepare_packet(0);
 
   // Prepare both DMA buffers with the same packet. One motor will get an inverted PWM due to timer config.
-  prepare_dshot_buffer(dshotPacket, dshotBufferMotor);
+//  prepare_dshot_buffer(dshotPacket, dshotBufferMotor);
+  dshot_prepare_dmabuffer(dshotBufferMotor, dshotPacket);
+
+  for (int i = 0; i < 4; i++)
+	  // Start the DMA-based PWM transmissions for both motors
+	  send_dshot_motor();
+
+  // Example throttle value for both motors (range 0-2047)
+  uint16_t throttle_value = 700;  // Adjust as needed
+
+  // Build the DShot packet for the given throttle and telemetry (0 = no telemetry)
+  dshotPacket = dshot_prepare_packet(throttle_value);
+
+  // Prepare both DMA buffers with the same packet. One motor will get an inverted PWM due to timer config.
+//  prepare_dshot_buffer(dshotPacket, dshotBufferMotor);
+  dshot_prepare_dmabuffer(dshotBufferMotor, dshotPacket);
 
   // Start the DMA-based PWM transmissions for both motors
   send_dshot_motor();
@@ -167,7 +188,7 @@ int main(void)
 		  bmp388_getData();
 	  }
 
-	  //snprintf(buffer, sizeof(buffer), "%lu, %lu\n", bmp388_rawData.temperature, bmp388_rawData.pressure);
+	  // snprintf(buffer, sizeof(buffer), "%lu, %lu\n", bmp388_rawData.temperature, bmp388_rawData.pressure);
 	  // HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
 
     /* USER CODE END WHILE */
@@ -399,7 +420,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 99;
+  htim3.Init.Period = 199;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -561,6 +582,65 @@ void prepare_dshot_buffer(uint16_t packet, uint16_t* buffer) {
     }
     // The extra element is a pause (set to 0)
     buffer[DSHOT_PACKET_SIZE] = 0;
+}
+
+
+uint16_t dshot_prepare_packet(uint16_t value)
+{
+	uint16_t packet;
+	bool dshot_telemetry = false;
+
+	packet = (value << 1) | (dshot_telemetry ? 1 : 0);
+
+	// compute checksum
+	unsigned csum = 0;
+	unsigned csum_data = packet;
+
+	for(int i = 0; i < 3; i++)
+	{
+        csum ^=  csum_data; // xor data by nibbles
+        csum_data >>= 4;
+	}
+
+	csum &= 0xF;
+	packet = (packet << 4) | csum;
+
+	return packet;
+}
+
+#define MOTOR_BIT_0            	7
+#define MOTOR_BIT_1            	14
+#define MOTOR_BITLENGTH        	20
+// Convert 16 bits packet to 16 pwm signal
+void dshot_prepare_dmabuffer(uint32_t* motor_dmabuffer, uint16_t value)
+{
+	uint16_t packet;
+	packet = dshot_prepare_packet(value);
+
+	for(int i = 0; i < 16; i++)
+	{
+		motor_dmabuffer[i] = (packet & 0x8000) ? MOTOR_BIT_1 : MOTOR_BIT_0;
+		packet <<= 1;
+	}
+
+	motor_dmabuffer[16] = 0;
+	motor_dmabuffer[17] = 0;
+}
+
+#define TIMER_CLOCK				100000000	// 100MHz
+#define DSHOT600_HZ     		(12 * 1000000)
+
+void dshot_set_timer()
+{
+	uint16_t dshot_prescaler;
+	uint32_t timer_clock = TIMER_CLOCK; // all timer clock is same as SystemCoreClock in stm32f411
+
+	// Calculate prescaler by dshot type
+	dshot_prescaler = lrintf((float) timer_clock / DSHOT600_HZ + 0.01f) - 1;
+
+	// motor1
+	__HAL_TIM_SET_PRESCALER(&htim3, dshot_prescaler);
+	__HAL_TIM_SET_AUTORELOAD(&htim3, MOTOR_BITLENGTH);
 }
 
 // Function to start the DMA transmission for motor 1 (normal polarity)
