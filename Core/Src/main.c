@@ -1,31 +1,33 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2024 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2024 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "bmp388.h"
+#include "mpu9250.h"
+#include <math.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdbool.h>
-#include "mpu9250.h"
-#include "bmp388.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -37,9 +39,8 @@
 /* USER CODE BEGIN PD */
 
 // Define DShot parameters
-#define DSHOT_PACKET_SIZE    16       // 16 bits per packet
-#define DSHOT_BUFFER_SIZE    (DSHOT_PACKET_SIZE + 1)  // 16 bits plus one pause frame
-#define DSHOT_TIMER_ARR      199      // Timer ARR value for the chosen DShot speed (e.g., DShot1200)
+#define DSHOT_PACKET_SIZE 16 // 16 bits per packet
+#define DSHOT_BUFFER_SIZE 600 // 16 bits + 584 trailing silence frames (exactly 1 ms loops!)
 
 /* USER CODE END PD */
 
@@ -86,15 +87,11 @@ static void MX_TIM2_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
-uint16_t build_dshot_packet(uint16_t throttle, uint8_t telemetry);
-void prepare_dshot_buffer(uint16_t packet, uint16_t* buffer);
-void send_dshot_motor(void);
 
 uint16_t dshot_prepare_packet(uint16_t value);
-void dshot_prepare_dmabuffer(uint32_t* motor_dmabuffer, uint16_t value);
+void dshot_prepare_dmabuffer(uint32_t *motor_dmabuffer, uint16_t value);
 
 void dshot_set_timer();
-
 
 /* USER CODE END PFP */
 
@@ -104,11 +101,10 @@ void dshot_set_timer();
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
-int main(void)
-{
+ * @brief  The application entry point.
+ * @retval int
+ */
+int main(void) {
 
   /* USER CODE BEGIN 1 */
 
@@ -119,7 +115,8 @@ int main(void)
 
   /* MCU Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick.
+   */
   HAL_Init();
 
   /* USER CODE BEGIN Init */
@@ -142,54 +139,70 @@ int main(void)
   MX_SPI2_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
-  HAL_TIM_Base_Start_IT(&htim2);  // Enable TIM2 interrupt
+  HAL_TIM_Base_Start_IT(&htim2); // Enable TIM2 interrupt
   char buffer[40] = {'\0'};
   mpu9250_setup();
   bmp388_setup();
 
   dshot_set_timer();
 
-  // Build the DShot packet for the given throttle and telemetry (0 = no telemetry)
+  // Build the DShot packet for the given throttle and telemetry (0 = no
+  // telemetry)
   uint16_t dshotPacket = dshot_prepare_packet(0);
 
-  // Prepare both DMA buffers with the same packet. One motor will get an inverted PWM due to timer config.
-//  prepare_dshot_buffer(dshotPacket, dshotBufferMotor);
+  // Prepare both DMA buffers with the same packet. One motor will get an
+  // inverted PWM due to timer config.
+  // prepare_dshot_buffer(dshotPacket, dshotBufferMotor);
   dshot_prepare_dmabuffer(dshotBufferMotor, dshotPacket);
 
-  for (int i = 0; i < 4; i++)
-	  // Start the DMA-based PWM transmissions for both motors
-	  send_dshot_motor();
+  // Because your CubeMX is configured for Circular DMA mode, we can just start
+  // it ONCE! The DMA will endlessly loop the 18 elements. The trailing two `0`s
+  // inherently create the perfect DShot stop-gaps.
+  HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_1, (uint32_t *)dshotBufferMotor,
+                        DSHOT_BUFFER_SIZE);
 
-  // Example throttle value for both motors (range 0-2047)
-  uint16_t throttle_value = 700;  // Adjust as needed
+  // ARMING Sequence: DShot ESCs require at least ~1 to 2 seconds of 0 value to
+  // arm securely! We just wait here while the background DMA bombards the ESC
+  // with perfect 0 throttle packets natively.
+  // CRITICAL: We wait 4 seconds. If you feed 150 throttle BEFORE the ESC finishes 
+  // its boot-up music, the ESC will trigger a Safety Lockout and refuse to arm!
+  HAL_Delay(4000);
+  uint16_t throttle_value = 150;
 
-  // Build the DShot packet for the given throttle and telemetry (0 = no telemetry)
+  // Rebuild the buffer for the actual throttle value in the background
   dshotPacket = dshot_prepare_packet(throttle_value);
-
-  // Prepare both DMA buffers with the same packet. One motor will get an inverted PWM due to timer config.
-//  prepare_dshot_buffer(dshotPacket, dshotBufferMotor);
   dshot_prepare_dmabuffer(dshotBufferMotor, dshotPacket);
-
-  // Start the DMA-based PWM transmissions for both motors
-  send_dshot_motor();
+  // Flush the newly updated D-Cache so the Circular DMA immediately picks up
+  // the new throttle values on its next wrap-around!
+  SCB_CleanDCache_by_Addr((uint32_t *)dshotBufferMotor,
+                          sizeof(dshotBufferMotor));
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-	  //process IMU data on timer interrupt
-	  if(timer_flag)
-	  {
-		  timer_flag = 0;	//reset timer flag
+  while (1) {
+    // process IMU data on timer interrupt
+    if (timer_flag) {
+      timer_flag = 0; // reset timer flag
 
-		  mpu9250_getProcessedAngle();
-		  bmp388_getData();
-	  }
+      mpu9250_getProcessedAngle();
+      bmp388_getData();
 
-	  // snprintf(buffer, sizeof(buffer), "%lu, %lu\n", bmp388_rawData.temperature, bmp388_rawData.pressure);
-	  // HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer), HAL_MAX_DELAY);
+      // DShot ESCs require continuous refresh.
+      // Since the DMA is in circular mode, it is already continuously sending
+      // the last generated buffer in the background! You just need to update
+      // dshotBufferMotor and run SCB_CleanDCache_by_Addr() whenever
+      // throttle_value changes!
+      dshotPacket = dshot_prepare_packet(throttle_value);
+      dshot_prepare_dmabuffer(dshotBufferMotor, dshotPacket);
+      SCB_CleanDCache_by_Addr((uint32_t *)dshotBufferMotor, sizeof(dshotBufferMotor));
+    }
+
+    // snprintf(buffer, sizeof(buffer), "%lu, %lu\n",
+    // bmp388_rawData.temperature, bmp388_rawData.pressure);
+    // HAL_UART_Transmit(&huart2, (uint8_t*)buffer, strlen(buffer),
+    // HAL_MAX_DELAY);
 
     /* USER CODE END WHILE */
 
@@ -199,27 +212,27 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
-void SystemClock_Config(void)
-{
+ * @brief System Clock Configuration
+ * @retval None
+ */
+void SystemClock_Config(void) {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Supply configuration update enable
-  */
+   */
   HAL_PWREx_ConfigSupply(PWR_LDO_SUPPLY);
 
   /** Configure the main internal regulator output voltage
-  */
+   */
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE0);
 
-  while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
+  while (!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {
+  }
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_DIV1;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
@@ -233,16 +246,15 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
   RCC_OscInitStruct.PLL.PLLFRACN = 0;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
     Error_Handler();
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2
-                              |RCC_CLOCKTYPE_D3PCLK1|RCC_CLOCKTYPE_D1PCLK1;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
+                                RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2 |
+                                RCC_CLOCKTYPE_D3PCLK1 | RCC_CLOCKTYPE_D1PCLK1;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.SYSCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_HCLK_DIV2;
@@ -251,19 +263,17 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB2CLKDivider = RCC_APB2_DIV2;
   RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV2;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
-  {
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK) {
     Error_Handler();
   }
 }
 
 /**
-  * @brief SPI1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_SPI1_Init(void)
-{
+ * @brief SPI1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_SPI1_Init(void) {
 
   /* USER CODE BEGIN SPI1_Init 0 */
 
@@ -288,30 +298,29 @@ static void MX_SPI1_Init(void)
   hspi1.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
   hspi1.Init.NSSPolarity = SPI_NSS_POLARITY_LOW;
   hspi1.Init.FifoThreshold = SPI_FIFO_THRESHOLD_01DATA;
-  hspi1.Init.TxCRCInitializationPattern = SPI_CRC_INITIALIZATION_ALL_ZERO_PATTERN;
-  hspi1.Init.RxCRCInitializationPattern = SPI_CRC_INITIALIZATION_ALL_ZERO_PATTERN;
+  hspi1.Init.TxCRCInitializationPattern =
+      SPI_CRC_INITIALIZATION_ALL_ZERO_PATTERN;
+  hspi1.Init.RxCRCInitializationPattern =
+      SPI_CRC_INITIALIZATION_ALL_ZERO_PATTERN;
   hspi1.Init.MasterSSIdleness = SPI_MASTER_SS_IDLENESS_00CYCLE;
   hspi1.Init.MasterInterDataIdleness = SPI_MASTER_INTERDATA_IDLENESS_00CYCLE;
   hspi1.Init.MasterReceiverAutoSusp = SPI_MASTER_RX_AUTOSUSP_DISABLE;
   hspi1.Init.MasterKeepIOState = SPI_MASTER_KEEP_IO_STATE_DISABLE;
   hspi1.Init.IOSwap = SPI_IO_SWAP_DISABLE;
-  if (HAL_SPI_Init(&hspi1) != HAL_OK)
-  {
+  if (HAL_SPI_Init(&hspi1) != HAL_OK) {
     Error_Handler();
   }
   /* USER CODE BEGIN SPI1_Init 2 */
 
   /* USER CODE END SPI1_Init 2 */
-
 }
 
 /**
-  * @brief SPI2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_SPI2_Init(void)
-{
+ * @brief SPI2 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_SPI2_Init(void) {
 
   /* USER CODE BEGIN SPI2_Init 0 */
 
@@ -336,30 +345,29 @@ static void MX_SPI2_Init(void)
   hspi2.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
   hspi2.Init.NSSPolarity = SPI_NSS_POLARITY_LOW;
   hspi2.Init.FifoThreshold = SPI_FIFO_THRESHOLD_01DATA;
-  hspi2.Init.TxCRCInitializationPattern = SPI_CRC_INITIALIZATION_ALL_ZERO_PATTERN;
-  hspi2.Init.RxCRCInitializationPattern = SPI_CRC_INITIALIZATION_ALL_ZERO_PATTERN;
+  hspi2.Init.TxCRCInitializationPattern =
+      SPI_CRC_INITIALIZATION_ALL_ZERO_PATTERN;
+  hspi2.Init.RxCRCInitializationPattern =
+      SPI_CRC_INITIALIZATION_ALL_ZERO_PATTERN;
   hspi2.Init.MasterSSIdleness = SPI_MASTER_SS_IDLENESS_00CYCLE;
   hspi2.Init.MasterInterDataIdleness = SPI_MASTER_INTERDATA_IDLENESS_00CYCLE;
   hspi2.Init.MasterReceiverAutoSusp = SPI_MASTER_RX_AUTOSUSP_DISABLE;
   hspi2.Init.MasterKeepIOState = SPI_MASTER_KEEP_IO_STATE_DISABLE;
   hspi2.Init.IOSwap = SPI_IO_SWAP_DISABLE;
-  if (HAL_SPI_Init(&hspi2) != HAL_OK)
-  {
+  if (HAL_SPI_Init(&hspi2) != HAL_OK) {
     Error_Handler();
   }
   /* USER CODE BEGIN SPI2_Init 2 */
 
   /* USER CODE END SPI2_Init 2 */
-
 }
 
 /**
-  * @brief TIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM2_Init(void)
-{
+ * @brief TIM2 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_TIM2_Init(void) {
 
   /* USER CODE BEGIN TIM2_Init 0 */
 
@@ -377,34 +385,29 @@ static void MX_TIM2_Init(void)
   htim2.Init.Period = 999;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
-  {
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
     Error_Handler();
   }
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-  {
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK) {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK) {
     Error_Handler();
   }
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
-
 }
 
 /**
-  * @brief TIM3 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM3_Init(void)
-{
+ * @brief TIM3 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_TIM3_Init(void) {
 
   /* USER CODE BEGIN TIM3_Init 0 */
 
@@ -423,47 +426,40 @@ static void MX_TIM3_Init(void)
   htim3.Init.Period = 199;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
-  {
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK) {
     Error_Handler();
   }
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
-  {
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK) {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
-  {
+  if (HAL_TIM_PWM_Init(&htim3) != HAL_OK) {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
-  {
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK) {
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
   sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK) {
     Error_Handler();
   }
   /* USER CODE BEGIN TIM3_Init 2 */
 
   /* USER CODE END TIM3_Init 2 */
   HAL_TIM_MspPostInit(&htim3);
-
 }
 
 /**
-  * @brief USART2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART2_UART_Init(void)
-{
+ * @brief USART2 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_USART2_UART_Init(void) {
 
   /* USER CODE BEGIN USART2_Init 0 */
 
@@ -483,33 +479,29 @@ static void MX_USART2_UART_Init(void)
   huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
   huart2.Init.ClockPrescaler = UART_PRESCALER_DIV1;
   huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
-  {
+  if (HAL_UART_Init(&huart2) != HAL_OK) {
     Error_Handler();
   }
-  if (HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
-  {
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8) !=
+      HAL_OK) {
     Error_Handler();
   }
-  if (HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
-  {
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8) !=
+      HAL_OK) {
     Error_Handler();
   }
-  if (HAL_UARTEx_DisableFifoMode(&huart2) != HAL_OK)
-  {
+  if (HAL_UARTEx_DisableFifoMode(&huart2) != HAL_OK) {
     Error_Handler();
   }
   /* USER CODE BEGIN USART2_Init 2 */
 
   /* USER CODE END USART2_Init 2 */
-
 }
 
 /**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
+ * Enable DMA controller clock
+ */
+static void MX_DMA_Init(void) {
 
   /* DMA controller clock enable */
   __HAL_RCC_DMA1_CLK_ENABLE();
@@ -518,19 +510,17 @@ static void MX_DMA_Init(void)
   /* DMA1_Stream0_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
-
 }
 
 /**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_GPIO_Init(void) {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+  /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
@@ -538,147 +528,101 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOC_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, SPI1_CS_Pin|SPI2_CS_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, SPI1_CS_Pin | SPI2_CS_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : SPI1_CS_Pin SPI2_CS_Pin */
-  GPIO_InitStruct.Pin = SPI1_CS_Pin|SPI2_CS_Pin;
+  GPIO_InitStruct.Pin = SPI1_CS_Pin | SPI2_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
 
-// Build a DShot packet given throttle (11 bits) and telemetry flag
-uint16_t build_dshot_packet(uint16_t throttle, uint8_t telemetry) {
-    throttle &= 0x07FF;  // keep only 11 bits
-    uint16_t packet = (throttle << 1) | (telemetry & 0x01);
+uint16_t dshot_prepare_packet(uint16_t value) {
+  uint16_t packet;
+  bool dshot_telemetry = false;
 
-    // Calculate 4-bit CRC
-    uint16_t csum = 0;
-    uint16_t csum_data = packet;
-    for (int i = 0; i < 3; i++) {
-        csum ^= csum_data;
-        csum_data >>= 4;
-    }
-    csum &= 0xF;
-    packet = (packet << 4) | csum;
-    return packet;
+  packet = (value << 1) | (dshot_telemetry ? 1 : 0);
+
+  // compute checksum
+  unsigned csum = 0;
+  unsigned csum_data = packet;
+
+  for (int i = 0; i < 3; i++) {
+    csum ^= csum_data; // xor data by nibbles
+    csum_data >>= 4;
+  }
+
+  csum &= 0xF;
+  packet = (packet << 4) | csum;
+
+  return packet;
 }
 
-// Convert the 16-bit packet into a PWM duty-cycle buffer.
-// Use 75% duty cycle for a logical '1' and 37.5% for a logical '0'.
-void prepare_dshot_buffer(uint16_t packet, uint16_t* buffer) {
-    for (int i = 0; i < DSHOT_PACKET_SIZE; i++) {
-        if (packet & (1 << (15 - i))) {
-            buffer[i] = (DSHOT_TIMER_ARR * 3) / 4;  // '1' bit (75%)
-        } else {
-            buffer[i] = (DSHOT_TIMER_ARR * 3) / 8;  // '0' bit (37.5%)
-        }
-    }
-    // The extra element is a pause (set to 0)
-    buffer[DSHOT_PACKET_SIZE] = 0;
-}
-
-
-uint16_t dshot_prepare_packet(uint16_t value)
-{
-	uint16_t packet;
-	bool dshot_telemetry = false;
-
-	packet = (value << 1) | (dshot_telemetry ? 1 : 0);
-
-	// compute checksum
-	unsigned csum = 0;
-	unsigned csum_data = packet;
-
-	for(int i = 0; i < 3; i++)
-	{
-        csum ^=  csum_data; // xor data by nibbles
-        csum_data >>= 4;
-	}
-
-	csum &= 0xF;
-	packet = (packet << 4) | csum;
-
-	return packet;
-}
-
-#define MOTOR_BIT_0            	7
-#define MOTOR_BIT_1            	14
-#define MOTOR_BITLENGTH        	20
+#define MOTOR_BIT_0 15     // 37.5% duty cycle
+#define MOTOR_BIT_1 30     // 75.0% duty cycle
+#define MOTOR_BITLENGTH 40 // 40 ticks per 1.667us (24MHz timer)
 // Convert 16 bits packet to 16 pwm signal
-void dshot_prepare_dmabuffer(uint32_t* motor_dmabuffer, uint16_t value)
-{
-	uint16_t packet;
-	packet = dshot_prepare_packet(value);
+void dshot_prepare_dmabuffer(uint32_t *motor_dmabuffer, uint16_t value) {
+  uint16_t packet;
+  packet = dshot_prepare_packet(value);
 
-	for(int i = 0; i < 16; i++)
-	{
-		motor_dmabuffer[i] = (packet & 0x8000) ? MOTOR_BIT_1 : MOTOR_BIT_0;
-		packet <<= 1;
-	}
+  for (int i = 0; i < 16; i++) {
+    motor_dmabuffer[i] = (packet & 0x8000) ? MOTOR_BIT_1 : MOTOR_BIT_0;
+    packet <<= 1;
+  }
 
-	motor_dmabuffer[16] = 0;
-	motor_dmabuffer[17] = 0;
+  for (int i = 16; i < DSHOT_BUFFER_SIZE; i++) {
+    motor_dmabuffer[i] = 0;
+  }
 }
 
-#define TIMER_CLOCK				100000000	// 100MHz
-#define DSHOT600_HZ     		(12 * 1000000)
+#define TIMER_CLOCK 240000000         // 240 MHz timer clock
+#define DSHOT_TIMER_HZ (1000000 * 24) // 24 MHz allows for 40 ticks exactly
 
-void dshot_set_timer()
-{
-	uint16_t dshot_prescaler;
-	uint32_t timer_clock = TIMER_CLOCK; // all timer clock is same as SystemCoreClock in stm32f411
+void dshot_set_timer() {
+  uint16_t dshot_prescaler;
+  uint32_t timer_clock = TIMER_CLOCK;
 
-	// Calculate prescaler by dshot type
-	dshot_prescaler = lrintf((float) timer_clock / DSHOT600_HZ + 0.01f) - 1;
+  // Calculate prescaler using precise rounding to hit 24MHz
+  dshot_prescaler = lrintf((float)timer_clock / DSHOT_TIMER_HZ + 0.01f) - 1;
 
-	// motor1
-	__HAL_TIM_SET_PRESCALER(&htim3, dshot_prescaler);
-	__HAL_TIM_SET_AUTORELOAD(&htim3, MOTOR_BITLENGTH);
+  // motor1
+  __HAL_TIM_SET_PRESCALER(&htim3, dshot_prescaler);
+  // ARR must be period - 1 to hit exactly 600 kHz instead of 571 kHz
+  __HAL_TIM_SET_AUTORELOAD(&htim3, MOTOR_BITLENGTH - 1);
 }
 
-// Function to start the DMA transmission for motor 1 (normal polarity)
-void send_dshot_motor(void) {
-    // htimX and TIM_CHANNEL_x are configured for motor 1 in CubeMX
-    HAL_TIM_PWM_Start_DMA(&htim3, TIM_CHANNEL_1, (uint32_t*)dshotBufferMotor, DSHOT_BUFFER_SIZE);
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+  if (htim == &htim2) {
+    timer_flag = 1;
+  }
 }
+int _write(int file, char *ptr, int len) {
+  int DataIdx;
 
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-	if (htim == &htim2)
-	{
-		timer_flag = 1;
-	}
-}
-int _write(int file, char *ptr, int len)
-{
-	int DataIdx;
-
-	for (DataIdx = 0; DataIdx < len; DataIdx++)
-	{
-		ITM_SendChar(*ptr++);
-	}
-	return len;
+  for (DataIdx = 0; DataIdx < len; DataIdx++) {
+    ITM_SendChar(*ptr++);
+  }
+  return len;
 }
 /* USER CODE END 4 */
 
- /* MPU Configuration */
+/* MPU Configuration */
 
-void MPU_Config(void)
-{
+void MPU_Config(void) {
   MPU_Region_InitTypeDef MPU_InitStruct = {0};
 
   /* Disables the MPU */
   HAL_MPU_Disable();
 
   /** Initializes and configures the Region and the memory to be protected
-  */
+   */
   MPU_InitStruct.Enable = MPU_REGION_ENABLE;
   MPU_InitStruct.Number = MPU_REGION_NUMBER0;
   MPU_InitStruct.BaseAddress = 0x0;
@@ -694,37 +638,34 @@ void MPU_Config(void)
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
   /* Enables the MPU */
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
-
 }
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
-void Error_Handler(void)
-{
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
+void Error_Handler(void) {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
-  while (1)
-  {
+  while (1) {
   }
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
-void assert_failed(uint8_t *file, uint32_t line)
-{
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
+void assert_failed(uint8_t *file, uint32_t line) {
   /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* User can add his own implementation to report the file name and line
+     number, ex: printf("Wrong parameters value: file %s on line %d\r\n", file,
+     line) */
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
